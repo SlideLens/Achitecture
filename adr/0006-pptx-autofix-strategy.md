@@ -1,40 +1,40 @@
-# ADR 0006: Автофиксы PPTX — паттерн «стратегия», минимальный надёжный набор
+# ADR 0006: PPTX autofixes — strategy pattern, minimal reliable set
 
-**Статус:** Принято
-**Дата:** 18 июня 2026 г.
-**Контекст решения:** автоисправление Деки, объём и безопасность правок
+**Status:** Accepted
+**Date:** 18 June 2026
+**Decision context:** Deck auto-correction, scope and safety of edits
 
-## 1. Контекст
+## 1. Context
 
-Дифференциация продукта — не только критика, но и **Исправленная дека**: пользователь скачивает PPTX с уже применёнными правками. Соблазн — «перевёрстывать» слайды (двигать блоки, переписывать тексты). Но python-pptx работает на низком уровне, а PPTX-зоопарк (мастера, темы, группы, анимации) делает агрессивные правки хрупкими: легко «сломать вёрстку» и отдать пользователю нерабочий файл — что хуже, чем не править вовсе.
+Product differentiation is not only critique but also a **fixed Deck**: the user downloads a PPTX with fixes already applied. The temptation is to “re-layout” slides (move blocks, rewrite text). But python-pptx works at a low level, and the PPTX zoo (masters, themes, groups, animations) makes aggressive edits fragile: it is easy to “break the layout” and hand the user a broken file — worse than not fixing at all.
 
-## 2. Решение
+## 2. Decision
 
-Автофиксы — **паттерн «стратегия»** с узким, надёжным набором правил:
+Autofixes use the **strategy pattern** with a narrow, reliable rule set:
 
 1. **`FixRule` (ABC):** `applies_to(finding) -> bool`, `apply(shape, finding) -> FixResult`.
-2. **Набор MVP** (только безопасные, локальные, обратимые по смыслу правки):
-   - `MinFontSizeRule` — шрифт < 14 pt → 14 pt.
-   - `ContrastRule` — контраст текста < 4.5:1 (формула WCAG) → перекраска в ближайший тёмный/светлый.
-   - `AlignmentRule` — выравнивание почти-выровненных блоков (допуск 3 px).
-3. **`PptxFixer.fix(deck, findings) -> Path`:** копия файла (оригинал неприкосновенен), применение правил **только** к Находкам с `auto_fixable = True`, лог `applied/skipped`.
-4. **Контрольный рендер после правок:** diff числа слайдов + грубая проверка «ничего не уехало за границы» — если правка сломала вёрстку, откат.
-5. **Перевёрстка слайдов — вне MVP** (и, вероятно, вообще вне продукта): это зона ручной работы дизайнера, не автомата.
+2. **MVP set** (only safe, local, meaningfully reversible edits):
+   - `MinFontSizeRule` — font < 14 pt → 14 pt.
+   - `ContrastRule` — text contrast < 4.5:1 (WCAG formula) → recolor to nearest dark/light.
+   - `AlignmentRule` — align nearly aligned blocks (3 px tolerance).
+3. **`PptxFixer.fix(deck, findings) -> Path`:** file copy (original untouched), apply rules **only** to Findings with `auto_fixable = True`, log `applied/skipped`.
+4. **Control render after edits:** diff slide count + coarse check “nothing went off bounds” — if a fix broke the layout, roll back.
+5. **Slide re-layout is out of MVP** (and likely out of the product entirely): that is a designer’s manual work, not automation.
 
-## 3. Рассмотренные альтернативы
+## 3. Alternatives considered
 
-- **LLM переписывает/перекомпоновывает слайд целиком.** Отклонено: непредсказуемо, ломает фирменную вёрстку, невозможно гарантировать открываемость файла.
-- **Экспорт «исправленной» версии как новый PPTX с нуля.** Отклонено: теряется исходное оформление, мастера, брендинг — пользователю нужен *его* файл с точечными правками.
-- **Показывать только рекомендации, без правки файла.** Отклонено как единственный вариант: автоправка — заявленная ценность; но она сознательно ограничена безопасным набором, а остальное остаётся текстовой рекомендацией (`fix_suggestion`).
+- **LLM rewrites/recomposes the whole slide.** Rejected: unpredictable, breaks brand layout, cannot guarantee the file opens.
+- **Export a “fixed” version as a brand-new PPTX from scratch.** Rejected: loses original styling, masters, branding — the user needs *their* file with surgical edits.
+- **Show recommendations only, no file edits.** Rejected as the sole option: autofix is a stated value; but it is deliberately limited to a safe set, and the rest stays a textual recommendation (`fix_suggestion`).
 
-## 4. Последствия
+## 4. Consequences
 
-### Положительные
-- Исправленная дека гарантированно открывается и сохраняет оформление; правки — только там, где безопасно.
-- Новые правила добавляются как отдельные `FixRule` без изменения оркестрации.
-- `auto_fixable`-флаг связывает Находку и возможность автоправки — прозрачно для UI («эту можно починить автоматически»).
+### Positive
+- The fixed Deck is guaranteed to open and keeps styling; edits only where safe.
+- New rules are added as separate `FixRule`s without changing orchestration.
+- The `auto_fixable` flag links a Finding to autofix capability — transparent for the UI (“this one can be fixed automatically”).
 
-### Отрицательные и риски
-- Автоматически чинится лишь часть Находок; остальное — ручные рекомендации. *Осознанно:* надёжность важнее охвата.
-- Контрольный рендер удваивает время на автофикс-шаге. *Митигация:* рендерим один раз в конце, не после каждого правила.
-- Редкие PPTX всё же могут повести себя неожиданно. *Митигация:* правка идёт на копии, при провале контрольного рендера — откат к оригиналу, Находки остаются как рекомендации.
+### Negative and risks
+- Only a subset of Findings is fixed automatically; the rest are manual recommendations. *Deliberate:* reliability over coverage.
+- The control render doubles time on the autofix step. *Mitigation:* render once at the end, not after each rule.
+- Rare PPTX files may still behave unexpectedly. *Mitigation:* edits run on a copy; on control-render failure — roll back to the original; Findings remain as recommendations.

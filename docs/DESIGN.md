@@ -1,62 +1,62 @@
-# Дизайн UI
+# UI design
 
-Дизайн-система = **Tailwind + shadcn/ui** (компоненты правятся вживую в коде). Витрина продукта — **страница Отчёта**; на неё тратим больше всего дизайн-времени. Все подписи — по-русски и терминами [CONTEXT.md](../CONTEXT.md) («Находка», не «замечание»; «Разбор», не «анализ»).
+Design system = **Tailwind + shadcn/ui** (components edited live in code). Product showcase = **Report page**; spend most design time there. All UI copy is in Russian and uses terms from [CONTEXT.md](../CONTEXT.md) (“Finding,” not “remark”; “Review,” not “analysis”).
 
-## Направление — «Precision Review»
+## Direction — “Precision Review”
 
-Белая тема, спокойный инструмент точной оценки: интерфейс держится нейтральным (чёрный/белый/серый), а цвет появляется только там, где несёт смысл — Серьёзность Находки, статус Разбора, интерактивное выделение. Primary-акцент (`--primary`, чёрный) зарезервирован под кнопки-действия; `--accent` (синий) — только под интерактив/выбор (фокус, ссылки, активные фильтры, прогресс-бар), никогда как декоративный «бренд-цвет».
+Light theme, a calm precision-review tool: the UI stays neutral (black/white/gray), and color appears only where it carries meaning — Finding Severity, Review status, interactive highlight. Primary accent (`--primary`, black) is reserved for action buttons; `--accent` (blue) — only for interactivity/selection (focus, links, active filters, progress bar), never as a decorative “brand color.”
 
-**Signature-элемент Отчёта:** пронумерованные пины на слайде (`SlideViewer`) — цветной кружок с номером Находки сидит в углу её `BBox`; тот же номер открывает `FindingCard` в колонке-«полях» справа. Рамка вокруг `BBox` — не сплошная обводка, а 4 уголка-«кроп-метки» (как в инструментах кадрирования), чтобы не спорить с содержимым слайда. У Находок без `BBox` (Дека целиком) вместо номера — маркер `◆`.
+**Report signature element:** numbered pins on the slide (`SlideViewer`) — a colored circle with the Finding number sits at the corner of its `BBox`; the same number opens the `FindingCard` in the right-hand “field notes” column. The frame around `BBox` is not a solid outline, but 4 corner crop marks (as in crop tools), so it does not fight the slide content. Findings without `BBox` (whole Deck) use a `◆` marker instead of a number.
 
-| Токен | Роль |
+| Token | Role |
 |---|---|
-| `--background` | почти-белый фон страницы |
-| `--card` | карточки Разборов и Находок |
-| `--primary` | чёрный — сплошные кнопки-действия (CTA) |
-| `--accent` | синий — интерактив/выбор: фокус-рамки, ссылки, активные фильтры, прогресс-бар, индикатор `processing` |
-| `--foreground` / `--muted-foreground` | основной / вторичный текст |
+| `--background` | near-white page background |
+| `--card` | Review and Finding cards |
+| `--primary` | black — solid action buttons (CTA) |
+| `--accent` | blue — interactivity/selection: focus rings, links, active filters, progress bar, `processing` indicator |
+| `--foreground` / `--muted-foreground` | primary / secondary text |
 
-- **Шрифты:** **Golos Text** (RU-нативный гротеск, вариативный, 400–800) — интерфейс и заголовки; **IBM Plex Mono** — Скор, номера Находок, теги Категорий/Серьёзности, метрики Подачи (данные визуально отделены от прозы). Оба самохостятся в `src/assets/fonts/` (без внешних запросов к Google Fonts в проде). Иконки — `lucide-react`.
-- **Стиль:** карточки `rounded-lg`, тонкие рамки (`--border`), тень только на hover у интерактивных карточек — не по умолчанию. Бейджи/теги — `font-mono`, uppercase, без «пилюль» на всю заливку (кроме статусов).
+- **Fonts:** **Golos Text** (RU-native grotesque, variable, 400–800) — UI and headings; **IBM Plex Mono** — Score, Finding numbers, Category/Severity tags, Delivery metrics (data visually separated from prose). Both self-hosted in `src/assets/fonts/` (no external Google Fonts requests in prod). Icons — `lucide-react`.
+- **Style:** cards `rounded-lg`, thin borders (`--border`), shadow only on hover for interactive cards — not by default. Badges/tags — `font-mono`, uppercase, no fully filled “pills” (except statuses).
 
-## Цвета Серьёзности Находок
+## Finding Severity colors
 
-Единый код цвета — в бейджах, в пинах/уголках на слайдах (Annotator) и в фильтрах:
+One color code — in badges, in pins/corners on slides (Annotator), and in filters:
 
-| Серьёзность | Цвет |
+| Severity | Color |
 |---|---|
-| `CRITICAL` | красный |
-| `MAJOR` | оранжевый (яркий, не коричневый — заметно отличается от `CRITICAL`) |
-| `MINOR` | серый |
+| `CRITICAL` | red |
+| `MAJOR` | orange (bright, not brown — clearly distinct from `CRITICAL`) |
+| `MINOR` | gray |
 
-## Цвета статуса Разбора
+## Review status colors
 
-| Статус | Вид |
+| Status | Look |
 |---|---|
-| queued | серый (контур) |
-| processing | синий (`--accent`), с индикатором-спиннером |
-| done | зелёный |
-| failed | красный, приглушённый, с `fail_reason` |
+| queued | gray (outline) |
+| processing | blue (`--accent`), with spinner indicator |
+| done | green |
+| failed | red, muted, with `fail_reason` |
 
-## Экраны
+## Screens
 
-1. **Лендинг** — оффер + **живой пример Отчёта** (замороженная JSON-фикстура рендерится боевыми компонентами Отчёта → пример всегда синхронен с продуктом). CTA на регистрацию. Plausible/Я.Метрика.
-2. **Вход / Регистрация** — email + пароль; экран «подтвердите почту».
-3. **Кабинет (Dashboard)** — сетка карточек Разборов со статусами + `UploadDropzone` (drag-and-drop Деки + опц. аудио/xlsx, валидация типа/размера **до** отправки, прогресс аплоада). Поллинг статуса до `done`/`failed`.
-4. **Отчёт (ReviewReport)** — главный экран:
-   - `ScoreGauge` — Скор 0–100 как измерительный циферблат (шкала делений + дуга прогресса, цвет по диапазону);
-   - `SlideViewer` — аннотированный PNG слайда с кроп-метками по `BBox` и пронумерованными пинами; клик по пину скроллит к соответствующей `FindingCard`;
-   - `FindingFilters` — по Категории/Серьёзности, состояние в URL-параметрах (шарится ссылкой), активные фильтры — акцентная (синяя) заливка;
-   - `FindingCard` — маркер с номером Находки (совпадает с пином), цвет по Серьёзности, `fix_suggestion`, кнопка 👎;
-   - `DeliveryPanel` + `MismatchPanel` — блоки «Подача» и «речь ↔ слайды» (только если было аудио);
-   - кнопки «Скачать PDF-отчёт» и «Скачать исправленный PPTX».
-5. **Rehearsal** (фаза 4) — заглушка в MVP.
+1. **Landing** — offer + **live Report example** (frozen JSON fixture rendered by production Report components → the example always stays in sync with the product). CTA to register. Plausible/Yandex.Metrica.
+2. **Login / Registration** — email + password; “confirm your email” screen.
+3. **Cabinet (Dashboard)** — Review card grid with statuses + `UploadDropzone` (drag-and-drop Deck + optional audio/xlsx, validate type/size **before** upload, upload progress). Poll status until `done`/`failed`.
+4. **Report (ReviewReport)** — main screen:
+   - `ScoreGauge` — Score 0–100 as a measuring dial (tick marks + progress arc, color by range);
+   - `SlideViewer` — annotated slide PNG with crop marks on `BBox` and numbered pins; pin click scrolls to the matching `FindingCard`;
+   - `FindingFilters` — by Category/Severity, state in URL params (shareable via link), active filters — accent (blue) fill;
+   - `FindingCard` — marker with Finding number (matches pin), color by Severity, `fix_suggestion`, 👎 button;
+   - `DeliveryPanel` + `MismatchPanel` — “Delivery” and “speech ↔ slides” blocks (only if audio was present);
+   - “Download PDF report” and “Download fixed PPTX” buttons.
+5. **Rehearsal** (phase 4) — stub in MVP.
 
-Навигация — шапка: Кабинет · Профиль/План · Выход.
+Navigation — header: Cabinet · Profile/Plan · Log out.
 
-## Правила
+## Rules
 
-- Мобильная адаптивность — не приоритет MVP (демо и работа с ноутбука, минимум 1280px).
-- **Пустые/промежуточные состояния обязательны:** пустой кабинет, Разбор `processing` (скелетоны + «SlideLens изучает вашу деку…»), `failed` с человекочитаемым `fail_reason`, Отчёт без Находок («серьёзных проблем не нашли»).
-- Все клиентские действия, важные для воронки (`report_opened`, `finding_expanded`, `pdf_downloaded`, `fixed_pptx_downloaded`), шлются в `POST /events`.
-- 👎 у Находки — заметная, но не навязчивая: это источник датасета для улучшения промптов ([ADR 0007](../adr/0007-three-layer-observability.md)).
+- Mobile responsiveness — not an MVP priority (demo and laptop work, minimum 1280px).
+- **Empty/intermediate states are required:** empty cabinet, Review `processing` (skeletons + “SlideLens is studying your deck…”), `failed` with a human-readable `fail_reason`, Report with no Findings (“no serious issues found”).
+- All client actions important to the funnel (`report_opened`, `finding_expanded`, `pdf_downloaded`, `fixed_pptx_downloaded`) are sent to `POST /events`.
+- 👎 on a Finding — noticeable but not pushy: it is the dataset source for prompt improvement ([ADR 0007](../adr/0007-three-layer-observability.md)).

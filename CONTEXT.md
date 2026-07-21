@@ -1,144 +1,144 @@
-# SlideLens — единый язык (глоссарий)
+# SlideLens — shared language (glossary)
 
-Этот файл — **источник правды по терминам**. Все остальные документы и будущий код (имена классов, полей, эндпоинтов, категорий) используют эти термины строго как здесь. Где у термина есть распространённый синоним, которого избегаем, — он помечен _Avoid_.
+This file is the **source of truth for terminology**. All other documents and future code (class names, fields, endpoints, categories) use these terms exactly as defined here. Where a term has a common synonym we avoid, it is marked _Avoid_.
 
-Продукт: веб-платформа, куда пользователь загружает презентацию (и опционально запись питча + Excel с данными), а мультимодальный агент выдаёт разбор уровня сеньор-дизайнера — аннотированные проблемы, проверку графиков на честность, сверку «речь ↔ слайды» и автоисправленную версию файла.
+Product: a web platform where a user uploads a presentation (and optionally a pitch recording + Excel with data), and a multimodal agent returns a senior-designer-level review — annotated problems, honesty checks on charts, a "speech ↔ slides" cross-check, and an auto-fixed version of the file.
 
-## Люди
+## People
 
-**Пользователь**:
-Зарегистрированный человек, который загружает свои презентации и читает разборы (в коде: `User`). Внешний клиент SaaS, а не сотрудник компании — поэтому здесь «пользователь» уместен (в отличие от внутренних систем).
-_Avoid_: клиент (кроме бизнес-контекста), заказчик
+**User**:
+A registered person who uploads presentations and reads Reviews (in code: `User`). An external SaaS customer, not a company employee — so "user" is appropriate here (unlike internal systems).
+_Avoid_: client (except in a business context), customer
 
-**План**:
-Тариф пользователя (в коде: `plan`): `free` (лимит бесплатных разборов) или `paid`. Оплата — фаза 3, но поле есть с MVP.
-_Avoid_: подписка (как имя поля), тариф (ок в UI-тексте, но канон поля — `plan`)
+**Plan**:
+The user's plan tier (in code: `plan`): `free` (limit of free Reviews) or `paid`. Billing is phase 3, but the field exists from MVP.
+_Avoid_: subscription (as a field name), tariff (ok in UI copy, but the canonical field is `plan`)
 
-**Администратор**:
-Флаг пользователя (в коде: `User.is_admin`, `bool`) — не тариф, ортогонален `plan`. Выставляется по email из `ADMIN_EMAILS` (`Settings.admin_email_set`) при регистрации и синхронизируется на каждом входе (`app/auth.py`), так что аккаунт, зарегистрированный до появления в списке, «доводится» до Администратора без ручной правки БД. Единственный эффект в MVP: `LimitService` обходит `free_reviews_left` целиком, независимо от `plan`. Не путать с ролью в админ-панели — отдельного интерфейса управления в MVP нет.
-_Avoid_: суперпользователь, root, superuser (как UI/доменный термин — `is_admin`/«Администратор» канон)
+**Administrator** (formerly «Администратор»):
+A user flag (in code: `User.is_admin`, `bool`) — not a plan tier; orthogonal to `plan`. Set from emails in `ADMIN_EMAILS` (`Settings.admin_email_set`) at registration and synced on every login (`app/auth.py`), so an account registered before appearing on the list is promoted to Administrator without a manual DB edit. The only MVP effect: `LimitService` bypasses `free_reviews_left` entirely, regardless of `plan`. Do not confuse with an admin-panel role — there is no management UI in MVP.
+_Avoid_: superuser, root, superuser (as a UI/domain term — `is_admin` / "Administrator" is canonical)
 
-## Артефакты пользователя
+## User artifacts
 
-**Дека**:
-Загруженная презентация — файл PPTX или PDF. Единица, вокруг которой строится Разбор.
-_Avoid_: презентация (ок в UI-тексте), слайд-дек, документ, файл (файл — это `FileAsset`, см. ниже)
+**Deck** (formerly «Дека»):
+An uploaded presentation — a PPTX or PDF file. The unit around which a Review is built.
+_Avoid_: presentation (ok in UI copy), slide deck, document, file (a file is `FileAsset`, see below)
 
-**Слайд**:
-Одна страница Деки. В пайплайне рендерится в PNG (`slide_001.png`…). Нумерация с 1.
+**Slide**:
+One page of a Deck. In the pipeline it is rendered to PNG (`slide_001.png`…). Numbering starts at 1.
 
-**Запись питча**:
-Опциональная аудио- или видеозапись выступления, которую пользователь прикладывает к Деке. Из видео берётся только аудиодорожка (кадры не анализируем в MVP). Источник Транскрипта и метрик Подачи.
-_Avoid_: аудио (ок как имя поля `audio`), видео, ролик
+**Pitch recording**:
+An optional audio or video recording of a talk that the user attaches to a Deck. From video, only the audio track is used (frames are not analyzed in MVP). Source of the Transcript and Delivery metrics.
+_Avoid_: audio (ok as field name `audio`), video, clip
 
-**Данные (Excel)**:
-Опциональный `.xlsx` с исходными цифрами, по которому ChartChecker сверяет значения на графиках Деки.
-_Avoid_: таблица, датасет
+**Data (Excel)**:
+An optional `.xlsx` with source numbers that ChartChecker uses to verify values on Deck charts.
+_Avoid_: table, dataset
 
-## Разбор
+## Review
 
-**Разбор**:
-Полный анализ одной Деки: прогон пайплайна от ингеста до отчёта (в коде: `Review`). Имеет статус, Скор и набор Находок. Один пользователь делает много Разборов.
-_Avoid_: анализ, аудит, проверка, ревью (последнее путается со статусом)
+**Review** (formerly «Разбор»):
+A full analysis of one Deck: a pipeline run from ingest to report (in code: `Review`). Has a status, a Score, and a set of Findings. One user creates many Reviews.
+_Avoid_: analysis, audit, check, review (the last confuses with status naming in Russian docs; prefer Review as the entity name)
 
-**Статус Разбора**:
-Жизненный цикл: `queued → processing → done`, плюс терминальный `failed`. Разбор идёт 2–5 минут в фоне, поэтому статус поллится, а не ждётся в HTTP-запросе.
-- **queued** — файлы приняты, Разбор поставлен в очередь.
-- **processing** — воркер выполняет пайплайн.
-- **done** — Находки, Скор и артефакты готовы; пользователю ушёл email.
-- **failed** — пайплайн упал; заполнен `fail_reason` (человекочитаемая причина).
+**Review status**:
+Lifecycle: `queued → processing → done`, plus terminal `failed`. A Review takes 2–5 minutes in the background, so status is polled rather than waited on in the HTTP request.
+- **queued** — files accepted, Review enqueued.
+- **processing** — worker is running the pipeline.
+- **done** — Findings, Score, and artifacts are ready; email sent to the user.
+- **failed** — pipeline crashed; `fail_reason` is set (human-readable cause).
 
-**Скор**:
-Итоговая оценка Деки 0–100 (в коде: `score`). Считается из Находок: `100 − Σ веса (critical 12, major 5, minor 1)`, нормировка на число слайдов, floor 5. Формула — в одном месте (`DeckScorer`), конфигурируема. Веса — **стартовый дефолт**; калибруются на золотом наборе в фазе 1.
-_Avoid_: рейтинг, балл, оценка (ок в UI-тексте)
+**Score** (formerly «Скор»):
+Final Deck score 0–100 (in code: `score`). Computed from Findings: `100 − Σ weights (critical 12, major 5, minor 1)`, normalized by slide count, floor 5. Formula lives in one place (`DeckScorer`), configurable. Weights are a **starting default**; calibrated on a golden set in phase 1.
+_Avoid_: rating, points, grade (ok in UI copy)
 
-## Находки
+## Findings
 
-**Находка**:
-Одна конкретная проблема, найденная в Деке (в коде: `Finding`). Привязана к слайду (или к Деке целиком, если `slide_num = None`), имеет Категорию, Серьёзность, заголовок, описание и предложение по исправлению.
-_Avoid_: замечание (ок как разговорное), ошибка, issue, проблема (как имя сущности)
+**Finding** (formerly «Находка»):
+One concrete problem found in a Deck (in code: `Finding`). Tied to a slide (or to the Deck as a whole if `slide_num = None`), has a Category, Severity, title, description, and suggested fix.
+_Avoid_: remark (ok colloquially), error, issue, problem (as an entity name)
 
-**Категория**:
-Тип Находки (в коде: enum `Category`). Канонический набор — фиксированный, единый источник правды для всего кода и UI:
-`TYPOGRAPHY` (типографика) · `HIERARCHY` (визуальная иерархия) · `READABILITY` (читаемость) · `CONSISTENCY` (консистентность деки) · `CHART` (проблема графика) · `NARRATIVE` (нарратив/структура) · `SPEECH_MISMATCH` (речь противоречит слайду) · `DELIVERY` (подача: темп/паузы/паразиты).
-_Avoid_: тип, тег, класс
+**Category**:
+Finding type (in code: enum `Category`). Canonical set is fixed — single source of truth for all code and UI:
+`TYPOGRAPHY` (typography) · `HIERARCHY` (visual hierarchy) · `READABILITY` (readability) · `CONSISTENCY` (deck consistency) · `CHART` (chart problem) · `NARRATIVE` (narrative/structure) · `SPEECH_MISMATCH` (speech contradicts the slide) · `DELIVERY` (delivery: pace/pauses/fillers).
+_Avoid_: type, tag, class
 
-**Серьёзность**:
-Приоритет Находки (в коде: enum `Severity`): `CRITICAL` (критично) · `MAJOR` (серьёзно) · `MINOR` (мелочь). Задаёт цвет рамки и вес в Скоре.
-_Avoid_: важность, приоритет, severity level
+**Severity**:
+Finding priority (in code: enum `Severity`): `CRITICAL` (critical) · `MAJOR` (serious) · `MINOR` (minor). Drives border color and weight in the Score.
+_Avoid_: importance, priority, severity level
 
 **BBox**:
-Нормированные координаты `0..1` прямоугольника проблемы на слайде (`x, y, w, h`) — не зависят от dpi. По ним Annotator рисует рамку. Может быть `None` (Находка без точной привязки к области).
-_Avoid_: координаты, рамка (рамка — это визуализация BBox), bounding box
+Normalized `0..1` coordinates of the problem rectangle on the slide (`x, y, w, h`) — dpi-independent. Annotator draws a frame from them. May be `None` (Finding without a precise region).
+_Avoid_: coordinates, frame (the frame is the visualization of a BBox), bounding box
 
-**Автофикс**:
-Автоматическое исправление Находки в самой Деке через python-pptx (в коде: `auto_fixable` / `auto_fixed`). Применяется только к безопасным правилам (размер шрифта, контраст, выравнивание) → на выходе Исправленная дека.
-_Avoid_: автоправка, фикс, автокоррекция
+**Auto-fix**:
+Automatic correction of a Finding in the Deck itself via python-pptx (in code: `auto_fixable` / `auto_fixed`). Applied only to safe rules (font size, contrast, alignment) → output is the Fixed deck.
+_Avoid_: auto-edit, fix, autocorrect
 
-**Исправленная дека**:
-Копия загруженной Деки с применёнными Автофиксами (`fixed.pptx`), которую пользователь может скачать.
-_Avoid_: fixed-версия, правленый файл
+**Fixed deck**:
+A copy of the uploaded Deck with Auto-fixes applied (`fixed.pptx`) that the user can download.
+_Avoid_: fixed version, edited file
 
-## Пайплайн и анализаторы
+## Pipeline and analyzers
 
-**Пайплайн**:
-Последовательность шагов Разбора: ингест → транскрипция ∥ парсинг Excel → анализаторы → агрегация → аннотация → автофиксы → отчёт (в коде: пакет `core/`, оркестратор `PipelineOrchestrator`). Чистая библиотека: **не импортирует `app/` и не ходит в БД напрямую** — их связывает только воркер.
-_Avoid_: конвейер, флоу, workflow
+**Pipeline**:
+Sequence of Review steps: ingest → transcription ∥ Excel parse → analyzers → aggregation → annotation → auto-fixes → report (in code: `core/` package, orchestrator `PipelineOrchestrator`). Pure library: **does not import `app/` and does not touch the DB directly** — only the worker wires them together.
+_Avoid_: conveyor, flow, workflow
 
-**Анализатор**:
-Модуль пайплайна, который порождает Находки (в коде: наследник `BaseAnalyzer`). Падение одного Анализатора не валит Разбор — он пропускается и логируется (частичный отчёт лучше, чем `failed`). Набор: SlideAnalyzer, ZoomAgent, DeckAnalyzer, ChartChecker, CrossModalAnalyzer.
-_Avoid_: проверка, чекер (кроме имени `ChartChecker`), детектор
+**Analyzer**:
+A pipeline module that produces Findings (in code: subclass of `BaseAnalyzer`). Failure of one Analyzer does not fail the Review — it is skipped and logged (a partial report is better than `failed`). Set: SlideAnalyzer, ZoomAgent, DeckAnalyzer, ChartChecker, CrossModalAnalyzer.
+_Avoid_: check, checker (except the name `ChartChecker`), detector
 
-**Зум-агент**:
-Анализатор (`ZoomAgent`), который дешёвым VLM-вызовом помечает подозрительные зоны слайда (мелкий текст, плотная таблица, график), вырезает их (кроп + upscale ×2) и анализирует крупно. Максимум 3 зума на слайд (контроль стоимости).
-_Avoid_: зумер, увеличитель
+**Zoom agent**:
+Analyzer (`ZoomAgent`) that uses a cheap VLM call to mark suspicious slide regions (small text, dense table, chart), crops them (crop + upscale ×2), and analyzes them at larger scale. Max 3 zooms per slide (cost control).
+_Avoid_: zoomer, magnifier
 
 **VLM**:
-Мультимодальная модель (vision-language), через которую идут анализ слайдов и графиков. В MVP — Claude API (vision). Все вызовы — только через `LLMClient`; напрямую `anthropic` в коде не импортируется.
-_Avoid_: LLM (частный случай — ок), нейросеть, модель (ок в общем контексте)
+Multimodal (vision-language) model used for slide and chart analysis. In MVP — Claude API (vision). All calls go only through `LLMClient`; `anthropic` is never imported directly in code.
+_Avoid_: LLM (narrow case — ok), neural net, model (ok in general context)
 
-## Подача и кросс-модальность
+## Delivery and cross-modality
 
-**Транскрипт**:
-Текст Записи питча с таймкодами (в коде: `list[TranscriptSegment]`), получаемый через faster-whisper. Основа кросс-модальной сверки и метрик Подачи.
-_Avoid_: расшифровка, субтитры
+**Transcript**:
+Pitch-recording text with timestamps (in code: `list[TranscriptSegment]`), produced via faster-whisper. Basis for cross-modal checking and Delivery metrics.
+_Avoid_: transcript dump, subtitles
 
-**Подача**:
-Как человек говорит (в коде: `DeliveryMetrics`): темп (слов/мин), Слова-паразиты, длинные паузы (> 3 с), тайминг по слайдам. Порождает Находки категории `DELIVERY` и рекомендации к Деке.
-_Avoid_: речь (речь — это то, что сверяется со слайдами), performance, дикция
+**Delivery** (formerly «Подача»):
+How the person speaks (in code: `DeliveryMetrics`): pace (words/min), Filler words, long pauses (> 3 s), per-slide timing. Produces Findings of category `DELIVERY` and recommendations for the Deck.
+_Avoid_: speech (speech is what is checked against slides), performance, diction
 
-**Слова-паразиты**:
-Слова-заполнители из RU-словаря («ээ», «как бы», «то есть», «на самом деле», «короче»…), которые считает `compute_delivery`.
-_Avoid_: филлеры, мусорные слова
+**Filler words**:
+Filler tokens from the RU dictionary ("ээ", "как бы", "то есть", "на самом деле", "короче"…), counted by `compute_delivery`.
+_Avoid_: fillers, junk words
 
-**Кросс-модальная сверка**:
-Сопоставление Транскрипта со слайдами (в коде: `CrossModalAnalyzer`): спикер утверждает X, а слайд показывает Y → Находка `SPEECH_MISMATCH`. Плюс рекомендации к Деке на основе речи («слайд 7 — 3 минуты речи → раздели»).
-_Avoid_: мультимодальная сверка (ок), выравнивание (это отдельный под-шаг)
+**Cross-modal check**:
+Matching Transcript to slides (in code: `CrossModalAnalyzer`): speaker claims X, slide shows Y → Finding `SPEECH_MISMATCH`. Plus Deck recommendations based on speech ("slide 7 — 3 minutes of talk → split it").
+_Avoid_: multimodal check (ok), alignment (that is a separate sub-step)
 
-**Режим репетиции**:
-Фаза 4: пользователь записывает питч прямо в браузере, листая слайды (MediaRecorder: аудио + таймкоды переключений → точные `SlideTiming`). В коде: `Rehearsal`. Даёт карту тайминга, слайды-«болота» (> 2 мин) и «заглушки» (< 5 с), динамику между прогонами.
-_Avoid_: тренажёр, живая запись
+**Rehearsal mode**:
+Phase 4: user records a pitch in the browser while advancing slides (MediaRecorder: audio + slide-switch timestamps → precise `SlideTiming`). In code: `Rehearsal`. Yields a timing map, "bog" slides (> 2 min) and "stubs" (< 5 s), and dynamics across runs.
+_Avoid_: trainer, live recording
 
-## Сборка результата
+## Assembling the result
 
-**Отчёт**:
-Витрина Разбора: Скор, Находки по слайдам с аннотированными PNG, блоки «дека целиком», «графики», «Подача», «речь ↔ слайды», «Автофиксы». Сериализуемая вью-модель (`ReportOut`), которая хранится в БД, отдаётся фронту (`GET /reviews/{id}/report`) и экспортируется в PDF (weasyprint).
-_Avoid_: репорт, результат (ок в общем контексте)
+**Report**:
+The Review storefront: Score, Findings per slide with annotated PNGs, blocks for "whole deck", "charts", "Delivery", "speech ↔ slides", "Auto-fixes". A serializable view model (`ReportOut`) stored in the DB, returned to the frontend (`GET /reviews/{id}/report`), and exported to PDF (weasyprint).
+_Avoid_: report (as a loose synonym for result), result (ok in general context)
 
-**Аннотация**:
-Наложение рамок по BBox на PNG слайда (цвет по Серьёзности) + номер Находки (в коде: `Annotator`, Pillow). Один слайд с несколькими Находками = одно изображение с несколькими рамками.
-_Avoid_: разметка, оверлей
+**Annotation**:
+Overlaying frames from BBoxes onto the slide PNG (color by Severity) plus Finding number (in code: `Annotator`, Pillow). One slide with several Findings = one image with several frames.
+_Avoid_: markup, overlay
 
 **FileAsset**:
-Любой файл, связанный с Разбором (в коде: `FileAsset`, поле `kind`): `deck_original | slide_png | annotated_png | fixed_pptx | audio | data_xlsx | report_pdf`. Имеет `expires_at` — автоудаление через N дней (приватность).
-_Avoid_: файл (как размытый термин), ассет, вложение
+Any file tied to a Review (in code: `FileAsset`, field `kind`): `deck_original | slide_png | annotated_png | fixed_pptx | audio | data_xlsx | report_pdf`. Has `expires_at` — auto-delete after N days (privacy).
+_Avoid_: file (as a vague term), asset, attachment
 
-## Аналитика и стоимость
+## Analytics and cost
 
-**Событие**:
-Запись продуктовой аналитики (в коде: `Event`): `user_id`, `name`, `properties` (JSON), `created_at`. События MVP: `signup`, `review_created`, `review_done`, `report_opened`, `finding_expanded`, `pdf_downloaded`, `fixed_pptx_downloaded`, `limit_hit` и т.д. Пишется из сервисов, не из роутов.
-_Avoid_: ивент, метрика (метрика — это Prometheus)
+**Event**:
+A product-analytics record (in code: `Event`): `user_id`, `name`, `properties` (JSON), `created_at`. MVP events: `signup`, `review_created`, `review_done`, `report_opened`, `finding_expanded`, `pdf_downloaded`, `fixed_pptx_downloaded`, `limit_hit`, etc. Written from services, not from routes.
+_Avoid_: event (as a loose synonym), metric (a metric is Prometheus)
 
-**Стоимость Разбора**:
-Сумма затрат на VLM-вызовы одного Разбора в USD (в коде: `ReviewContext.total_cost_usd`). Главная метрика юнит-экономики; трейсится в Langfuse, есть алерт на превышение порога.
-_Avoid_: цена, косты
+**Review cost**:
+Sum of VLM-call spend for one Review in USD (in code: `ReviewContext.total_cost_usd`). Primary unit-economics metric; traced in Langfuse, with an alert on threshold breach.
+_Avoid_: price, costs

@@ -1,45 +1,45 @@
 shape: sequence_diagram
 
 # =============================================================================
-# ПУТЬ ПОЛЬЗОВАТЕЛЯ: загрузка деки → фоновый разбор → отчёт (ADR 0003)
+# USER PATH: upload deck → background review → report (ADR 0003)
 # =============================================================================
 
-user: "Пользователь"
+user: "User"
 api: "FastAPI (app)"
-worker: "Воркер (core)"
+worker: "Worker (core)"
 ai: "Claude API / Whisper"
-store: "БД + файлы"
+store: "DB + files"
 mail: "Email (SMTP)"
 
-# --- Регистрация ---
-user -> api: "1. Регистрация (email+пароль)"
-api -> mail: "2. Письмо с подтверждением"
-mail -> user: "3. Ссылка подтверждения"
-user -> api: "4. Подтвердил почту, вошёл (JWT)"
+# --- Registration ---
+user -> api: "1. Sign up (email+password)"
+api -> mail: "2. Verification email"
+mail -> user: "3. Confirmation link"
+user -> api: "4. Verified email, signed in (JWT)"
 
-# --- Загрузка и постановка в очередь ---
-user -> api: "5. POST /reviews (дека + аудио? + xlsx?) [multipart]"
-api -> api: "6. Проверка лимита (free_reviews_left) и MIME/размера"
-api -> store: "7. Review(status=queued), сохранить файлы"
-api -> user: "8. 202 — «разбор запущен» (кабинет)"
-api -> worker: "9. Задача в очередь (ARQ)"
+# --- Upload and enqueue ---
+user -> api: "5. POST /reviews (deck + audio? + xlsx?) [multipart]"
+api -> api: "6. Check limit (free_reviews_left) and MIME/size"
+api -> store: "7. Review(status=queued), save files"
+api -> user: "8. 202 — \"review started\" (cabinet)"
+api -> worker: "9. Job enqueued (ARQ)"
 
-# --- Фоновый пайплайн ---
-worker -> worker: "10. Рендер слайдов в PNG (LibreOffice)"
-worker -> ai: "11. Whisper — транскрипт с таймкодами"
-worker -> ai: "12. Пер-слайдовый VLM-анализ + зумы"
+# --- Background pipeline ---
+worker -> worker: "10. Render slides to PNG (LibreOffice)"
+worker -> ai: "11. Whisper — transcript with timecodes"
+worker -> ai: "12. Per-slide VLM analysis + zooms"
 ai -> worker: "13. Findings (JSON)"
-worker -> ai: "14. Межслайдовый анализ + речь ↔ слайды"
+worker -> ai: "14. Cross-slide analysis + speech ↔ slides"
 ai -> worker: "15. Findings (JSON)"
-worker -> worker: "16. Агрегация, скоринг, аннотация, автофиксы → fixed.pptx"
+worker -> worker: "16. Aggregation, scoring, annotation, autofixes → fixed.pptx"
 worker -> store: "17. findings, score, artifacts, status=done"
-worker -> mail: "18. «Отчёт готов»"
-mail -> user: "19. Письмо со ссылкой"
+worker -> mail: "18. \"Report ready\""
+mail -> user: "19. Email with link"
 
-# --- Чтение отчёта ---
+# --- Read report ---
 user -> api: "20. GET /reviews/{id}/report"
-api -> store: "21. Собрать ReportOut (findings + file_assets)"
-store -> api: "22. Вью-модель отчёта"
-api -> user: "23. Скор, находки по слайдам, блоки графики/подача/речь↔слайды"
-user -> api: "24. Скачать PDF / fixed.pptx"
-api -> user: "25. Файлы (проверка владельца)"
+api -> store: "21. Build ReportOut (findings + file_assets)"
+store -> api: "22. Report view-model"
+api -> user: "23. Score, findings by slide, charts/delivery/speech↔slides blocks"
+user -> api: "24. Download PDF / fixed.pptx"
+api -> user: "25. Files (owner check)"

@@ -1,44 +1,44 @@
-# ADR 0004: Стек — FastAPI (JSON API) + React SPA, рендер через LibreOffice
+# ADR 0004: Stack — FastAPI (JSON API) + React SPA, render via LibreOffice
 
-**Статус:** Принято
-**Дата:** 12 июня 2026 г.
-**Контекст решения:** технологический стек, контракт фронт↔бэк, деплой
+**Status:** Accepted
+**Date:** 12 June 2026
+**Decision context:** technology stack, frontend↔backend contract, deploy
 
-## 1. Контекст
+## 1. Context
 
-Нужен стек под соло-разработку с AI-помощниками (важна консистентность генерации кода и типобезопасный контракт), под мультимодальный Python-пайплайн (VLM, whisper, python-pptx — экосистема Python) и под витринный Отчёт с интерактивом (аннотированные слайды, фильтры). Плюс надёжный серверный рендер PPTX в картинки.
+We need a stack for solo development with AI assistants (consistent codegen and a type-safe contract matter), for a multimodal Python pipeline (VLM, whisper, python-pptx — Python ecosystem), and for a showcase Report with interactivity (annotated slides, filters). Plus reliable server-side PPTX-to-image rendering.
 
-## 2. Решение
+## 2. Decision
 
-**Бэкенд — FastAPI, чистый JSON API** (`/api/v1`, JWT bearer). Контракт — автогенерируемая OpenAPI-схема; типы фронта генерятся из неё (`openapi-typescript`), руками не пишутся: изменил DTO → перегенерил типы → TypeScript показывает, что сломалось.
+**Backend — FastAPI, pure JSON API** (`/api/v1`, JWT bearer). The contract is an auto-generated OpenAPI schema; frontend types are generated from it (`openapi-typescript`), never written by hand: change a DTO → regenerate types → TypeScript shows what broke.
 
-**Фронтенд — отдельный SPA:** React + Vite + TypeScript + Tailwind + TanStack Query + React Router. Отчёт — главный экран продукта.
+**Frontend — separate SPA:** React + Vite + TypeScript + Tailwind + TanStack Query + React Router. The Report is the product’s main screen.
 
-**Данные — PostgreSQL + SQLAlchemy 2.0 + Alembic** (SQLite локально для быстрого старта). В отличие от чисто-хакатонных проектов, здесь продукт живёт долго → миграции нужны с начала.
+**Data — PostgreSQL + SQLAlchemy 2.0 + Alembic** (SQLite locally for a fast start). Unlike pure hackathon projects, this product lives for a long time → migrations are needed from day one.
 
-**Auth — fastapi-users** (email+пароль, подтверждение почты, JWT access+refresh). Auth не пишем сами.
+**Auth — fastapi-users** (email+password, email confirmation, JWT access+refresh). We do not write auth ourselves.
 
-**Рендер слайдов — LibreOffice headless** (`soffice --convert-to pdf`) + pdf2image (PDF→PNG 150 dpi). Работает в Docker, тянет PPTX и PDF. В образ кладём RU-шрифты (ttf-mscorefonts, PT Sans/Serif) — критично, иначе русские деки рендерятся квадратами.
+**Slide render — LibreOffice headless** (`soffice --convert-to pdf`) + pdf2image (PDF→PNG 150 dpi). Works in Docker, handles PPTX and PDF. The image includes RU fonts (ttf-mscorefonts, PT Sans/Serif) — critical, otherwise Russian decks render as tofu squares.
 
-**Прочее ядро:** faster-whisper (транскрипция), python-pptx (автофиксы), Pillow (аннотации), weasyprint (PDF-отчёт из Jinja-шаблона — единственное место с HTML-шаблоном; фронт PDF не генерирует).
+**Other core pieces:** faster-whisper (transcription), python-pptx (autofixes), Pillow (annotations), weasyprint (PDF report from a Jinja template — the only place with an HTML template; the frontend does not generate PDFs).
 
-**Прод — Docker Compose + Caddy:** собранный SPA (`frontend/dist`) вшивается в backend-образ (`./static`) и раздаётся самой FastAPI (`StaticFiles`) — как в референсном проекте. Caddy перед образом только терминирует TLS и реверс-проксирует весь трафик на app (**один домен → без CORS в проде, куки/токены проще**), HTTPS автоматом. Детали — [DEPLOY.md](../docs/DEPLOY.md).
+**Prod — Docker Compose + Caddy:** the built SPA (`frontend/dist`) is baked into the backend image (`./static`) and served by FastAPI itself (`StaticFiles`) — as in the reference project. Caddy in front of the image only terminates TLS and reverse-proxies all traffic to app (**one domain → no CORS in prod, cookies/tokens are simpler**), HTTPS automatically. Details — [DEPLOY.md](../docs/DEPLOY.md).
 
-## 3. Рассмотренные альтернативы
+## 3. Alternatives considered
 
-- **Server-rendered (Jinja2 + HTMX) вместо SPA.** Рассматривалось (черновой план был на HTMX) и отклонено: Отчёт с аннотированными слайдами, кликами по рамкам и фильтрами в URL — это богатый клиентский стейт, где React с TanStack Query выигрывает; типизированный контракт из OpenAPI ценнее для соло-разработки с AI.
-- **Node/TS на бэкенде.** Отклонено: весь мультимодальный стек (whisper, python-pptx, VLM-SDK, pdf2image) — Python; переезд ядра на Node не окупается.
-- **Рендер через нативный PowerPoint / облачный конвертер.** Отклонено: не запускается в Linux-контейнере / внешняя зависимость и приватность; LibreOffice headless самодостаточен.
-- **nginx + отдельный контейнер фронта.** Отклонено: Caddy проще (авто-HTTPS, меньше конфига), один домен убирает CORS.
+- **Server-rendered (Jinja2 + HTMX) instead of SPA.** Considered (early draft was HTMX) and rejected: a Report with annotated slides, clicks on bounding boxes, and URL filters is rich client state where React with TanStack Query wins; a typed OpenAPI contract is more valuable for solo development with AI.
+- **Node/TS on the backend.** Rejected: the entire multimodal stack (whisper, python-pptx, VLM SDK, pdf2image) is Python; moving the core to Node does not pay off.
+- **Render via native PowerPoint / cloud converter.** Rejected: does not run in a Linux container / external dependency and privacy concerns; LibreOffice headless is self-contained.
+- **nginx + separate frontend container.** Rejected: Caddy is simpler (auto-HTTPS, less config); one domain removes CORS.
 
-## 4. Последствия
+## 4. Consequences
 
-### Положительные
-- Единый типобезопасный контракт фронт↔бэк из OpenAPI; AI-помощники генерят консистентный код по структуре.
-- Python-ядро и веб в одной экосистеме; рендер и все ML-зависимости живут в одном образе.
-- Один origin в проде — нет CORS, проще токены.
+### Positive
+- A single type-safe frontend↔backend contract from OpenAPI; AI assistants generate consistent code against the structure.
+- Python core and web in one ecosystem; render and all ML dependencies live in one image.
+- One origin in prod — no CORS, simpler tokens.
 
-### Отрицательные и риски
-- Тяжёлый Docker-образ (LibreOffice + ffmpeg + шрифты + CUDA-необязательный whisper). *Митигация:* multi-stage сборка, CPU-whisper (small/medium), слои кэшируются.
-- LibreOffice капризен к экзотическим PPTX (анимации, редкие шрифты). *Митигация:* таймаут + retry рендера, типизированные исключения ингеста, фолбэк «приложите PDF».
-- Две кодовые базы (Python + TS). *Митигация:* генерация типов из OpenAPI держит их в синхроне.
+### Negative and risks
+- Heavy Docker image (LibreOffice + ffmpeg + fonts + optional CUDA whisper). *Mitigation:* multi-stage build, CPU whisper (small/medium), cached layers.
+- LibreOffice is finicky with exotic PPTX (animations, rare fonts). *Mitigation:* render timeout + retry, typed ingest exceptions, fallback “attach a PDF”.
+- Two codebases (Python + TS). *Mitigation:* OpenAPI type generation keeps them in sync.

@@ -1,7 +1,7 @@
 direction: down
 
 # =============================================================================
-# ПАЙПЛАЙН РАЗБОРА — 10 шагов (ADR 0002). Падение анализатора не валит разбор.
+# REVIEW PIPELINE — 10 steps (ADR 0002). Analyzer failure does not fail the review.
 # =============================================================================
 
 start: "Review: status = processing" {
@@ -9,70 +9,70 @@ start: "Review: status = processing" {
   style.fill: "#dbeafe"
 }
 
-s1: "1. Ингест" {
+s1: "1. Ingest" {
   style.fill: "#f8fafc"
   style.stroke: "#94a3b8"
 
-  ingest: "DeckIngestor\nPPTX/PDF → PDF (LibreOffice) → PNG (pdf2image)\n+ тексты слайдов (python-pptx)" {
+  ingest: "DeckIngestor\nPPTX/PDF → PDF (LibreOffice) → PNG (pdf2image)\n+ slide texts (python-pptx)" {
     style.fill: "#e0f2fe"
   }
-  transcribe: "Transcriber\nаудио → WAV → faster-whisper\n→ транскрипт + DeliveryMetrics" {
+  transcribe: "Transcriber\naudio → WAV → faster-whisper\n→ transcript + DeliveryMetrics" {
     style.fill: "#e0f2fe"
   }
-  excel: "Парсинг Excel (если приложен)" {
+  excel: "Excel parsing (if attached)" {
     style.fill: "#e0f2fe"
   }
 }
 
-s2: "2. Анализ (VLM = Claude vision)" {
+s2: "2. Analysis (VLM = Claude vision)" {
   style.fill: "#fefce8"
   style.stroke: "#ca8a04"
 
-  slide: "SlideAnalyzer\nиерархия, типографика, читаемость" {
+  slide: "SlideAnalyzer\nhierarchy, typography, readability" {
     style.fill: "#fef9c3"
   }
-  zoom: "ZoomAgent\nподозрительные зоны → кроп ×2 → крупно" {
+  zoom: "ZoomAgent\nsuspicious regions → crop ×2 → close-up" {
     style.fill: "#fef9c3"
   }
-  deck: "DeckAnalyzer\nконсистентность, нарратив, дубли" {
+  deck: "DeckAnalyzer\nconsistency, narrative, duplicates" {
     style.fill: "#fef9c3"
   }
-  chart: "ChartChecker\nобрезанные оси, pie≠100%, сверка с Excel" {
+  chart: "ChartChecker\nclipped axes, pie≠100%, Excel check" {
     style.fill: "#fef9c3"
   }
-  cross: "CrossModalAnalyzer\nречь ↔ слайды, рекомендации к деке" {
+  cross: "CrossModalAnalyzer\nspeech ↔ slides, deck recommendations" {
     style.fill: "#fef9c3"
   }
 }
 
-s3: "3. Сборка результата" {
+s3: "3. Result assembly" {
   style.fill: "#f0fdf4"
   style.stroke: "#0f5132"
 
-  agg: "Aggregator + DeckScorer\nдедуп, приоритизация, скор 0–100" {
+  agg: "Aggregator + DeckScorer\ndedup, prioritization, score 0–100" {
     style.fill: "#d1e7dd"
   }
-  annot: "Annotator (Pillow)\nрамки-bbox на PNG" {
+  annot: "Annotator (Pillow)\nbbox frames on PNG" {
     style.fill: "#d1e7dd"
   }
-  fixer: "PptxFixer\nконтраст/выравнивание/шрифт → fixed.pptx" {
+  fixer: "PptxFixer\ncontrast/alignment/font → fixed.pptx" {
     style.fill: "#d1e7dd"
   }
-  report: "ReportBuilder + PdfExporter\nвью-модель + PDF (weasyprint)" {
+  report: "ReportBuilder + PdfExporter\nview-model + PDF (weasyprint)" {
     style.fill: "#d1e7dd"
   }
 }
 
-done: "status = done · email пользователю" {
+done: "status = done · email to user" {
   shape: oval
   style.fill: "#dcfce7"
 }
-fail: "status = failed + fail_reason\nфолбэк: приложить PDF" {
+fail: "status = failed + fail_reason\nfallback: attach PDF" {
   shape: oval
   style.fill: "#fee2e2"
 }
 
-# --- Потоки ---
+# --- Flows ---
 start -> s1.ingest
 s1.ingest -> s2.slide
 s1.ingest -> s1.transcribe: {style.stroke-dash: 4}
@@ -90,4 +90,4 @@ s3.agg -> s3.fixer
 s3.annot -> s3.report
 s3.fixer -> s3.report
 s3.report -> done
-s1.ingest -> fail: "ошибка рендера"
+s1.ingest -> fail: "render error"

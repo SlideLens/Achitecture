@@ -1,49 +1,49 @@
-# ADR 0007: Трёхслойная observability; стоимость Разбора — главная метрика
+# ADR 0007: Three-layer observability; Review cost — primary metric
 
-**Статус:** Принято
-**Дата:** 20 июня 2026 г.
-**Контекст решения:** мониторинг, аналитика, контроль юнит-экономики
+**Status:** Accepted
+**Date:** 20 June 2026
+**Decision context:** monitoring, analytics, unit-economics control
 
-## 1. Контекст
+## 1. Context
 
-У продукта три разных вопроса наблюдаемости, которые нельзя смешивать:
-1. **Что делают пользователи** (продукт: воронка, что читают в Отчёте).
-2. **Что делает агент** (LLM: промпты, ответы, латентность и — критично — **стоимость каждого Разбора**).
-3. **Жив ли сервис** (инфра: ошибки, RPS, очередь, доля `failed`).
+The product has three distinct observability questions that must not be mixed:
+1. **What users do** (product: funnel, what they read in the Report).
+2. **What the agent does** (LLM: prompts, responses, latency, and — critically — **cost of each Review**).
+3. **Whether the service is alive** (infra: errors, RPS, queue, share of `failed`).
 
-Стоимость Разбора — основная статья расходов и главный риск юнит-экономики: без её измерения с первого дня легко построить продукт, который дороже, чем за него платят.
+Review cost is the main expense line and the primary unit-economics risk: without measuring it from day one it is easy to build a product that costs more than customers pay.
 
-## 2. Решение
+## 2. Decision
 
-Три независимых слоя, каждый — своим инструментом:
+Three independent layers, each with its own tool:
 
-**Слой 1. Продуктовая аналитика.** Таблица `Event` в Postgres (`user_id`, `name`, `properties` JSON, `created_at`); события пишутся из сервисов, не из роутов. Воронка `signup → review_created → review_done → report_opened → *_downloaded → second_review`. Дашборд воронки — в Grafana через Postgres-datasource (отдельный BI не нужен). На лендинге — Plausible/Я.Метрика.
+**Layer 1. Product analytics.** `Event` table in Postgres (`user_id`, `name`, `properties` JSON, `created_at`); events are written from services, not from routes. Funnel `signup → review_created → review_done → report_opened → *_downloaded → second_review`. Funnel dashboard — in Grafana via a Postgres datasource (no separate BI needed). On the landing — Plausible / Yandex.Metrica.
 
-**Слой 2. LLM-observability — Langfuse** (ставится с первого дня):
-- трейс каждого Разбора: все VLM-вызовы по шагам, промпты, ответы, латентность;
-- **стоимость Разбора в USD** — метрика юнит-экономики; алерт при превышении порога;
-- версии промптов из `backend/core/prompts/` привязаны к трейсам → видно, какая версия даёт лучше Находки;
-- флаг 👎 «мусорная находка» из Отчёта пишется обратно в Langfuse — это датасет для итераций промптов.
+**Layer 2. LLM observability — Langfuse** (from day one):
+- trace of every Review: all VLM calls by step, prompts, responses, latency;
+- **Review cost in USD** — unit-economics metric; alert when a threshold is exceeded;
+- prompt versions from `backend/core/prompts/` attached to traces → which version yields better Findings;
+- 👎 “junk Finding” flag from the Report is written back to Langfuse — a dataset for prompt iteration.
 
-**Слой 3. Инфраструктура** (по мере роста):
-1. **Sentry** — с первого дня (фаза 1): ошибки пайплайна и бэкенда со стектрейсами.
-2. **structlog** (JSON, `review_id`/`user_id` через contextvars) — с первого дня, чтобы Loki потом парсил без переделок.
-3. **Grafana + Loki + Prometheus** — при деплое (фаза 2): сквозной поиск по `review_id`; кастомные метрики `pipeline_step_duration_seconds{step}`, `review_cost_usd`, `queue_depth`, `reviews_total{status}`; 3 дашборда (API, пайплайн, воронка); алерты в Telegram (сервис упал, `queue_depth > 10`, `failed > 10 %`, стоимость выше порога).
+**Layer 3. Infrastructure** (as we grow):
+1. **Sentry** — from day one (phase 1): pipeline and backend errors with stack traces.
+2. **structlog** (JSON, `review_id`/`user_id` via contextvars) — from day one, so Loki can parse later without rework.
+3. **Grafana + Loki + Prometheus** — at deploy (phase 2): end-to-end search by `review_id`; custom metrics `pipeline_step_duration_seconds{step}`, `review_cost_usd`, `queue_depth`, `reviews_total{status}`; 3 dashboards (API, pipeline, funnel); Telegram alerts (service down, `queue_depth > 10`, `failed > 10%`, cost above threshold).
 
-## 3. Рассмотренные альтернативы
+## 3. Alternatives considered
 
-- **Один инструмент на всё (например, только Grafana или только Amplitude).** Отклонено: продуктовая воронка, трейсинг промптов со стоимостью и инфра-метрики — разные модели данных; Langfuse специализирован под LLM, его роль не закрывает APM.
-- **Jaeger/Tempo (распределённый трейсинг).** Отклонено: монолиту не нужен; для пайплайна его роль выполняет Langfuse.
-- **Elasticsearch для логов.** Отклонено: тяжёлый; Loki достаточно.
-- **Отложить observability на «после MVP».** Отклонено для Sentry/structlog/Langfuse: без стоимости и ошибок с первого дня нельзя итерировать качество и экономику ядра.
+- **One tool for everything (e.g. only Grafana or only Amplitude).** Rejected: product funnel, prompt tracing with cost, and infra metrics are different data models; Langfuse is specialized for LLM and does not replace APM.
+- **Jaeger/Tempo (distributed tracing).** Rejected: a monolith does not need it; for the pipeline Langfuse fills that role.
+- **Elasticsearch for logs.** Rejected: heavy; Loki is enough.
+- **Defer observability to “after MVP”.** Rejected for Sentry/structlog/Langfuse: without cost and errors from day one you cannot iterate on core quality and economics.
 
-## 4. Последствия
+## 4. Consequences
 
-### Положительные
-- Стоимость Разбора видна с первого вызова → юнит-экономика под контролем, есть на что ставить алерт.
-- 👎-разметка из Отчёта замыкает цикл «продукт → датасет → промпты».
-- Сквозной `review_id` связывает лог, метрику и трейс одного Разбора.
+### Positive
+- Review cost is visible from the first call → unit economics under control, something to alert on.
+- 👎 labeling from the Report closes the loop “product → dataset → prompts”.
+- End-to-end `review_id` ties log, metric, and trace of one Review.
 
-### Отрицательные и риски
-- Три системы = операционная нагрузка. *Митигация:* весь инфра-слой в docker-compose; Sentry/Langfuse — облачные бесплатные тиры на старте.
-- Langfuse self-hosted добавляет сервисы в compose. *Митигация:* на старте — облачный тир Langfuse, self-host по желанию позже.
+### Negative and risks
+- Three systems = operational load. *Mitigation:* full infra layer in docker-compose; Sentry/Langfuse — free cloud tiers at the start.
+- Self-hosted Langfuse adds services to compose. *Mitigation:* start with Langfuse cloud tier; self-host later if desired.

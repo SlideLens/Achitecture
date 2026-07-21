@@ -1,54 +1,54 @@
-# SlideLens — агент-ревьюер презентаций
+# SlideLens — presentation review agent
 
-> Исходная постановка продукта. Подробные требования — в [docs/PRD.md](docs/PRD.md), единый язык терминов — в [CONTEXT.md](CONTEXT.md).
+> Original product statement. Detailed requirements are in [docs/PRD.md](docs/PRD.md); shared terminology is in [CONTEXT.md](CONTEXT.md).
 
-## Проблема
+## Problem
 
-Люди, которые регулярно носят слайды руководству и клиентам (консультанты, аналитики, сейлзы, стартаперы), готовят презентации почти вслепую. Взгляд сеньор-дизайнера или опытного спикера — дорог и недоступен под каждую деку. В итоге:
+People who regularly present slides to leadership and clients (consultants, analysts, sales, founders) prepare presentations almost blindly. A senior designer’s or experienced speaker’s eye is expensive and unavailable for every Deck. As a result:
 
-- слайды перегружены, нечитаемы, непоследовательны по шрифтам и цветам;
-- графики вводят в заблуждение (обрезанные оси, подпись противоречит данным) — иногда неумышленно;
-- то, что человек **говорит**, расходится с тем, что **на слайде**;
-- подача проседает: слишком быстро/медленно, слова-паразиты, «болота» на одном слайде.
+- slides are overloaded, hard to read, and inconsistent in fonts and colors;
+- charts mislead (truncated axes, caption contradicts data) — sometimes unintentionally;
+- what the person **says** diverges from what is **on the slide**;
+- Delivery suffers: too fast/slow, filler words, "bogs" stuck on one slide.
 
-Существующие инструменты либо косметические (шаблоны, авто-выравнивание), либо дают «пластиковую» критику уровня чек-листа и не смотрят на цифры и речь.
+Existing tools are either cosmetic (templates, auto-alignment) or give checklist-level "plastic" critique and do not look at numbers or speech.
 
-## Задача
+## Goal
 
-Веб-платформа, где пользователь загружает Деку (PPTX/PDF), опционально — Запись питча и Excel с данными, а мультимодальный агент выдаёт **Разбор уровня сеньор-дизайнера**: аннотированные скриншоты проблем, проверку графиков на честность, сверку «что говорит спикер ↔ что на слайде» и **автоисправленную версию файла**.
+A web platform where a user uploads a Deck (PPTX/PDF), optionally a Pitch recording and Excel with data, and a multimodal agent returns a **senior-designer-level Review**: annotated screenshots of problems, honesty checks on charts, a "what the speaker says ↔ what is on the slide" cross-check, and an **auto-fixed version of the file**.
 
-## Что должен уметь MVP
+## What MVP must do
 
-- принимать Деку (PPTX/PDF, до ~50 МБ) и опциональные вложения (Запись питча, Excel);
-- рендерить слайды и анализировать каждый: типографика, визуальная иерархия, читаемость;
-- «зумиться» в подозрительные зоны (мелкий текст, графики) и анализировать их крупно;
-- анализировать деку целиком: консистентность шрифтов/цветов, логика нарратива, дубли;
-- проверять графики: обрезанные оси, подпись против данных, сверка с приложенным Excel;
-- сверять речь и слайды, считать метрики Подачи (темп, паузы, слова-паразиты) по загруженной записи;
-- приоритизировать Находки, ставить Скор Деки (0–100);
-- показывать Отчёт: аннотированные слайды, фильтры, блоки «графики / подача / речь ↔ слайды»;
-- отдавать **исправленную версию PPTX** и PDF-отчёт;
-- регистрация с подтверждением почты, лимит бесплатных Разборов, публичный лендинг с живым примером.
+- accept a Deck (PPTX/PDF, up to ~50 MB) and optional attachments (Pitch recording, Excel);
+- render slides and analyze each: typography, visual hierarchy, readability;
+- "zoom" into suspicious regions (small text, charts) and analyze them at larger scale;
+- analyze the deck as a whole: font/color consistency, narrative logic, duplicates;
+- check charts: truncated axes, caption vs. data, reconciliation against attached Excel;
+- cross-check speech and slides, compute Delivery metrics (pace, pauses, filler words) from the uploaded recording;
+- prioritize Findings, assign a Deck Score (0–100);
+- show a Report: annotated slides, filters, blocks for "charts / Delivery / speech ↔ slides";
+- deliver a **fixed PPTX version** and a PDF report;
+- registration with email confirmation, free Review limit, public landing with a live example.
 
-## Ключевая дифференциация
+## Key differentiation
 
-1. **Кросс-модальность:** слайды + речь + данные в одном Разборе.
-2. **Проверка цифр на графиках** (обрезанные оси, график не подтверждает подпись).
-3. **Автоисправление PPTX**, а не только критика.
-4. Фокус на **корпоративных** презентациях, не на пич-деках для VC.
-5. **Русскоязычный** рынок как стартовый.
-6. **Режим репетиции** (фаза 4): запись питча прямо в платформе → тайминг по слайдам и тренажёр перед каждым выступлением.
+1. **Cross-modality:** slides + speech + data in one Review.
+2. **Number checks on charts** (truncated axes, chart does not support the caption).
+3. **PPTX auto-fix**, not critique alone.
+4. Focus on **corporate** presentations, not VC pitch decks.
+5. **Russian-language** market as the starting point.
+6. **Rehearsal mode** (phase 4): record a pitch inside the platform → per-slide timing and a practice loop before every talk.
 
-## Будет плюсом (после MVP)
+## Nice to have (after MVP)
 
-- Режим репетиции с записью в браузере и динамикой между прогонами (фаза 4).
-- Оплата и тарифы (фаза 3).
-- Интеграция с Google Slides; бренд-бук-комплаенс.
-- Двухступенчатая модель (дешёвый скрининг → дорогой анализ) для оптимизации стоимости.
+- Rehearsal mode with in-browser recording and dynamics across runs (phase 4).
+- Billing and plans (phase 3).
+- Google Slides integration; brand-book compliance.
+- Two-tier model (cheap screening → expensive analysis) for cost optimization.
 
-## Ограничения проекта
+## Project constraints
 
-- Соло-разработка по вечерам/выходным (5–10 ч/нед) с AI-помощниками; реалистичный срок публичного MVP — ~3–4 месяца.
-- Язык MVP — только русский (промпты, Отчёт, лендинг).
-- Основная статья расходов — VLM API; юнит-экономику меряем с первого дня (Langfuse).
-- Приватность: чужие презентации содержат конфиденциальные данные → файлы автоудаляются через N дней и не используются для обучения.
+- Solo development on evenings/weekends (5–10 h/week) with AI assistants; realistic public MVP timeline — ~3–4 months.
+- MVP language — Russian only (prompts, Report, landing).
+- Main cost line — VLM API; measure unit economics from day one (Langfuse).
+- Privacy: others’ presentations contain confidential data → files auto-delete after N days and are not used for training.

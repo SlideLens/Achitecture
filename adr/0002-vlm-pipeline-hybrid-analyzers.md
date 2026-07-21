@@ -1,45 +1,45 @@
-# ADR 0002: Многоступенчатый VLM-пайплайн из независимых анализаторов с зум-агентом
+# ADR 0002: Multi-stage VLM pipeline of independent analyzers with a zoom agent
 
-**Статус:** Принято
-**Дата:** 8 июня 2026 г.
-**Контекст решения:** ядро анализа, качество и стоимость Находок
+**Status:** Accepted
+**Date:** 8 June 2026
+**Decision context:** analysis core, Finding quality and cost
 
-## 1. Контекст
+## 1. Context
 
-Наивный подход «одна картинка слайда → один промпт → находки» на первых спайках дал «пластиковую» критику: модель плохо читает мелкий текст с PNG, пропускает проблемы графиков, не видит межслайдовую консистентность и путается, когда на слайде много всего. При этом качество ядра — вопрос жизни продукта (см. приоритеты в [PRD.md](../docs/PRD.md) §1): без recall ≥ 70 % и мусора < 20 % продукта нет.
+The naive approach “one slide image → one prompt → findings” produced “plastic” critique on early spikes: the model poorly reads fine text from PNGs, misses chart issues, cannot see cross-slide consistency, and gets confused when a slide is dense. Core quality is existential for the product (see priorities in [PRD.md](../docs/PRD.md) §1): without recall ≥ 70% and noise < 20%, there is no product.
 
-Одновременно VLM — основная статья расходов, и «прогнать всё по максимуму» превращает Разбор 20-слайдовой Деки в дорогую операцию.
+At the same time VLM is the main cost driver, and “run everything at maximum” turns a Review of a 20-slide Deck into an expensive operation.
 
-## 2. Решение
+## 2. Decision
 
-Разложить анализ на **набор независимых анализаторов** поверх общего `BaseAnalyzer`, каждый со своей узкой зоной ответственности и своим версионированным промптом:
+Split analysis into a **set of independent analyzers** on top of a shared `BaseAnalyzer`, each with a narrow responsibility and its own versioned prompt:
 
-1. **`SlideAnalyzer`** — пер-слайдовый анализ (иерархия, типографика, читаемость). PNG + извлечённый python-pptx текст слайда подаются вместе (модель хуже читает мелкий текст с картинки). Конкурентно (`asyncio` + `Semaphore(4)`).
-2. **`ZoomAgent`** — двухфазный: дешёвый скрининг помечает подозрительные зоны (`SuspiciousRegion[]`: bbox + причина) → кроп по bbox с upscale ×2 → повторный анализ крупно. Кап **3 зума/слайд** (контроль стоимости).
-3. **`DeckAnalyzer`** — контактный лист (сетка миниатюр всех слайдов) + тексты → консистентность шрифтов/цветов, нарратив, дубли; Находки уровня Деки (`slide_num = None`).
-4. **`ChartChecker`** — для слайдов с графиками: зум → `ChartReading` → проверки честности; сверка с Excel, если приложен.
-5. **`CrossModalAnalyzer`** — речь ↔ слайды (см. [ADR 0005](0005-crossmodal-delivery-analysis.md)).
+1. **`SlideAnalyzer`** — per-slide analysis (hierarchy, typography, readability). PNG + python-pptx–extracted slide text are provided together (the model reads fine text from images poorly). Concurrent (`asyncio` + `Semaphore(4)`).
+2. **`ZoomAgent`** — two-phase: cheap screening marks suspicious regions (`SuspiciousRegion[]`: bbox + reason) → crop by bbox with ×2 upscale → re-analyze at large scale. Cap **3 zooms/slide** (cost control).
+3. **`DeckAnalyzer`** — contact sheet (grid of all slide thumbnails) + texts → font/color consistency, narrative, duplicates; Deck-level Findings (`slide_num = None`).
+4. **`ChartChecker`** — for slides with charts: zoom → `ChartReading` → honesty checks; reconcile with Excel when attached.
+5. **`CrossModalAnalyzer`** — speech ↔ slides (see [ADR 0005](0005-crossmodal-delivery-analysis.md)).
 
-Общие правила:
-- **Единый `LLMClient`** — все VLM-вызовы (vision + structured output через tool use), retry невалидного JSON (1 раз, с текстом ошибки в промпт), ретраи 429/529 с backoff, Langfuse-span на каждый вызов, инкремент стоимости в `ReviewContext`. Параметр `tier` (screening/full) под будущую двухступенчатую модель.
-- **Структурированный вывод:** ответ строго по pydantic-схеме `Finding`; единый enum `Category`/`Severity` — источник правды для кода и UI.
-- **Graceful degradation:** `BaseAnalyzer` оборачивает `run()` — замер времени, лог, **перехват исключений**. Упавший анализатор пропускается и логируется; Разбор продолжается (частичный отчёт лучше `failed`).
-- **Версионирование промптов:** промпты — md-файлы в `backend/core/prompts/` с frontmatter (`version`, `tier`); версия попадает в Langfuse-трейс → связь «версия ↔ качество» в `quality-log.md`.
+Shared rules:
+- **Single `LLMClient`** — all VLM calls (vision + structured output via tool use), retry of invalid JSON (once, with the error text in the prompt), retries on 429/529 with backoff, Langfuse span per call, cost increment in `ReviewContext`. Parameter `tier` (screening/full) for a future two-tier model.
+- **Structured output:** response strictly follows the pydantic schema `Finding`; shared enums `Category`/`Severity` — source of truth for code and UI.
+- **Graceful degradation:** `BaseAnalyzer` wraps `run()` — timing, logging, **exception catching**. A failed analyzer is skipped and logged; the Review continues (a partial report is better than `failed`).
+- **Prompt versioning:** prompts are md files under `backend/core/prompts/` with frontmatter (`version`, `tier`); the version lands in the Langfuse trace → “version ↔ quality” link in `quality-log.md`.
 
-## 3. Рассмотренные альтернативы
+## 3. Alternatives considered
 
-- **Один мега-промпт на слайд.** Отклонено: не читает мелкий текст, не ловит графики и межслайдовое, невозможно версионировать по под-задачам.
-- **Классические CV-эвристики (OpenCV) вместо VLM.** Отклонено для семантики (иерархия, нарратив, «подпись противоречит данным») — там нужна модель; но частично оставлено в автофиксах ([ADR 0006](0006-pptx-autofix-strategy.md)) и в fallback-метриках Подачи.
-- **Fine-tune собственной модели.** Отклонено: нет данных и бюджета на этапе MVP; ценность — в пайплайне, а не в весах.
+- **One mega-prompt per slide.** Rejected: does not read fine text, misses charts and cross-slide issues, cannot version by sub-task.
+- **Classic CV heuristics (OpenCV) instead of VLM.** Rejected for semantics (hierarchy, narrative, “caption contradicts the data”) — those need a model; partially retained in autofixes ([ADR 0006](0006-pptx-autofix-strategy.md)) and in Delivery fallback metrics.
+- **Fine-tune a custom model.** Rejected: no data or budget at MVP; value is in the pipeline, not in weights.
 
-## 4. Последствия
+## 4. Consequences
 
-### Положительные
-- Каждый анализатор итерируется и тестируется отдельно; включается/выключается списком в конфиге оркестратора.
-- Зум-агент поднимает recall на «мелких» проблемах, которые пропускает пер-слайдовый проход, — с контролируемой стоимостью.
-- Стоимость каждого шага видна в Langfuse отдельным span → понятно, что оптимизировать.
+### Positive
+- Each analyzer is iterated and tested in isolation; enabled/disabled via a list in the orchestrator config.
+- The zoom agent raises recall on “fine” issues missed by the per-slide pass — at controlled cost.
+- Cost of each step is visible in Langfuse as a separate span → clear what to optimize.
 
-### Отрицательные и риски
-- Больше VLM-вызовов → выше стоимость. *Митигация:* кап зумов, `Semaphore`, screening-tier, алерт на `review_cost_usd`.
-- Дубли Находок от разных анализаторов. *Митигация:* `Aggregator` дедуплицирует по `slide_num` + IoU bbox > 0.5 + LLM-подтверждение «одно и то же?».
-- Недетерминизм VLM усложняет eval. *Митигация:* `temperature: 0`, golden-набор + LLM-судья, стабильность Скора ±5 на повторном прогоне как приёмочный тест.
+### Negative and risks
+- More VLM calls → higher cost. *Mitigation:* zoom cap, `Semaphore`, screening tier, alert on `review_cost_usd`.
+- Duplicate Findings from different analyzers. *Mitigation:* `Aggregator` deduplicates by `slide_num` + bbox IoU > 0.5 + LLM confirmation “same issue?”.
+- VLM non-determinism complicates eval. *Mitigation:* `temperature: 0`, golden set + LLM judge, Score stability ±5 on a re-run as an acceptance test.

@@ -1,38 +1,38 @@
 direction: down
 
 # =============================================================================
-# C1 — КОНТЕКСТ СИСТЕМЫ SlideLens
+# C1 — SYSTEM CONTEXT SlideLens
 # =============================================================================
 
-user: "Пользователь\n(консультант / аналитик / сейлз)" {
+user: "User\n(consultant / analyst / sales)" {
   shape: person
   style.fill: "#e2e8f0"
 }
 
-slidelens: "SlideLens\nАгент-ревьюер презентаций\n[Software System]" {
+slidelens: "SlideLens\nPresentation review agent\n[Software System]" {
   style.fill: "#0052cc"
   style.stroke: "#002b80"
   style.font-color: "#ffffff"
 }
 
-# --- Внешние сервисы ---
-vlm: "Claude API (vision)\n(Анализ слайдов и графиков)" {
+# --- External services ---
+vlm: "Claude API (vision)\n(Slide and chart analysis)" {
   style.fill: "#f0fdf4"
   style.stroke: "#16a34a"
 }
-email: "Email-сервис (SMTP)\n(Подтверждение почты, готовность отчёта)" {
+email: "Email service (SMTP)\n(Email verification, report ready)" {
   style.fill: "#fafafa"
   style.stroke: "#737373"
 }
-obs: "Observability\n(Sentry · Langfuse: ошибки, трейсы VLM, стоимость USD)\n[dev/ops-контур, не рантайм]" {
+obs: "Observability\n(Sentry · Langfuse: errors, VLM traces, USD cost)\n[dev/ops plane, not runtime]" {
   style.fill: "#faf5ff"
   style.stroke: "#a855f7"
 }
 
-# --- Связи ---
-user -> slidelens: "Загрузка деки/питча, чтение отчёта (HTTPS)"
-slidelens -> vlm: "Промпты + картинки / JSON (HTTPS)"
-slidelens -> email: "Письма (SMTP)"
-slidelens -> obs: "Ошибки, трейсы, стоимость разбора" {
+# --- Relationships ---
+user -> slidelens: "Upload deck/pitch, read report (HTTPS)"
+slidelens -> vlm: "Prompts + images / JSON (HTTPS)"
+slidelens -> email: "Emails (SMTP)"
+slidelens -> obs: "Errors, traces, review cost" {
   style.stroke-dash: 5
 }

@@ -1,53 +1,53 @@
-# SlideLens — архитектура и документация
+# SlideLens — architecture and documentation
 
-**SlideLens** — веб-платформа, куда пользователь загружает презентацию (Деку, PPTX/PDF), опционально Запись питча и Excel с данными, а мультимодальный агент выдаёт **Разбор уровня сеньор-дизайнера**: аннотированные проблемы слайдов, проверку графиков на честность, сверку «речь ↔ слайды» и **автоисправленную версию файла**.
+**SlideLens** is a web platform where a user uploads a presentation (Deck, PPTX/PDF), optionally a pitch Recording and an Excel file with data, and a multimodal agent returns a **senior-designer-level Review**: annotated slide problems, honesty checks on charts, a "speech ↔ slides" cross-check, and an **auto-fixed version of the file**.
 
-Этот репозиторий — **спецификация архитектуры** (кода приложения здесь пока нет): по нему пишется реализация. Вся документация — на русском; правки держим на русском и строго по терминам [CONTEXT.md](CONTEXT.md).
+This repository is an **architecture specification** (there is no application code here yet): implementation is written against it. All documentation is in English; keep edits in English and strictly follow the terms in [CONTEXT.md](CONTEXT.md).
 
-## Что делает продукт
+## What the product does
 
-- **Анализ слайдов** — типографика, визуальная иерархия, читаемость; зум в мелкий текст и графики.
-- **Проверка графиков на честность** — обрезанные оси, подпись против данных, сверка с приложенным Excel.
-- **Кросс-модальность** — сверка «что говорит спикер ↔ что на слайде» + метрики Подачи (темп, паузы, слова-паразиты).
-- **Автоисправление** — Исправленная дека (PPTX) с безопасными правками (шрифт/контраст/выравнивание) + PDF-отчёт.
+- **Slide analysis** — typography, visual hierarchy, readability; zoom into small text and charts.
+- **Chart honesty checks** — truncated axes, caption vs. data, reconciliation against attached Excel.
+- **Cross-modality** — "what the speaker says ↔ what is on the slide" plus Delivery metrics (pace, pauses, filler words).
+- **Auto-fix** — Fixed deck (PPTX) with safe edits (font/contrast/alignment) plus a PDF report.
 
-## Порядок чтения
+## Reading order
 
-1. [TASK.md](TASK.md) — исходная постановка (проблема, что умеет MVP).
-2. [CONTEXT.md](CONTEXT.md) — **глоссарий, единый язык — обязателен.** Канонические термины (Разбор, Дека, Находка, Категория…) с пометками «избегать синонимов». Все прочие документы и код используют их строго.
-3. [docs/PRD.md](docs/PRD.md) — user stories с критериями приёмки, AI-функции, скоуп (MVP / фазы), риски, метрики.
-4. [docs/C4.md](docs/C4.md) — диаграммы C1–C3 + пайплайн + ERD + sequence (Mermaid, читаются на GitHub).
-5. [api/openapi.yaml](api/openapi.yaml) — REST-контракт (**источник правды**); проза-компаньон — [docs/API.md](docs/API.md) (держать в синхроне, при конфликте прав openapi.yaml).
-6. [docs/PROMPTS.md](docs/PROMPTS.md) — промпты анализаторов, JSON-схемы, поведение без LLM.
-7. [docs/DEPLOY.md](docs/DEPLOY.md) — VPS, Docker Compose, Caddy, CI/CD, приватность.
-8. [docs/DESIGN.md](docs/DESIGN.md) — дизайн-система и экраны (витрина — страница Отчёта).
-9. [docs/BACKLOG.md](docs/BACKLOG.md) — план по фазам 0–4 и целевая структура репозитория.
-10. [adr/](adr/) — принятые архитектурные решения (ниже).
+1. [TASK.md](TASK.md) — original product statement (problem, what MVP can do).
+2. [CONTEXT.md](CONTEXT.md) — **glossary, shared language — required.** Canonical terms (Review, Deck, Finding, Category…) with "avoid these synonyms" notes. All other documents and code use them strictly.
+3. [docs/PRD.md](docs/PRD.md) — user stories with acceptance criteria, AI features, scope (MVP / phases), risks, metrics.
+4. [docs/C4.md](docs/C4.md) — C1–C3 diagrams + pipeline + ERD + sequence (Mermaid, readable on GitHub).
+5. [api/openapi.yaml](api/openapi.yaml) — REST contract (**source of truth**); prose companion — [docs/API.md](docs/API.md) (keep in sync; on conflict, openapi.yaml wins).
+6. [docs/PROMPTS.md](docs/PROMPTS.md) — analyzer prompts, JSON schemas, no-LLM fallback behavior.
+7. [docs/DEPLOY.md](docs/DEPLOY.md) — VPS, Docker Compose, Caddy, CI/CD, privacy.
+8. [docs/DESIGN.md](docs/DESIGN.md) — design system and screens (the Report page is the storefront).
+9. [docs/BACKLOG.md](docs/BACKLOG.md) — phase 0–4 plan and target repository structure.
+10. [adr/](adr/) — accepted architectural decisions (below).
 
-## Архитектурные решения (ADR)
+## Architectural decisions (ADR)
 
-- [0001](adr/0001-pipeline-pure-library.md) — пайплайн `backend/core/` как чистая библиотека, изолированная от `backend/app/` и БД.
-- [0002](adr/0002-vlm-pipeline-hybrid-analyzers.md) — многоступенчатый VLM-пайплайн из независимых анализаторов + зум-агент, graceful degradation.
-- [0003](adr/0003-async-review-worker.md) — асинхронный фоновый воркер (Разбор идёт минуты, не в HTTP-запросе).
-- [0004](adr/0004-stack-fastapi-react.md) — стек FastAPI + React SPA, рендер через LibreOffice, один домен Caddy.
-- [0005](adr/0005-crossmodal-delivery-analysis.md) — кросс-модальная сверка и метрики Подачи; репетиция — фаза 4.
-- [0006](adr/0006-pptx-autofix-strategy.md) — автофиксы PPTX как «стратегия», минимальный надёжный набор правил.
-- [0007](adr/0007-three-layer-observability.md) — трёхслойная observability; стоимость Разбора — главная метрика.
+- [0001](adr/0001-pipeline-pure-library.md) — pipeline in `backend/core/` as a pure library, isolated from `backend/app/` and the DB.
+- [0002](adr/0002-vlm-pipeline-hybrid-analyzers.md) — multi-stage VLM pipeline of independent analyzers + zoom agent, graceful degradation.
+- [0003](adr/0003-async-review-worker.md) — asynchronous background worker (a Review takes minutes, not an HTTP request).
+- [0004](adr/0004-stack-fastapi-react.md) — FastAPI + React SPA stack, rendering via LibreOffice, single Caddy domain.
+- [0005](adr/0005-crossmodal-delivery-analysis.md) — cross-modal check and Delivery metrics; rehearsal is phase 4.
+- [0006](adr/0006-pptx-autofix-strategy.md) — PPTX auto-fixes as a "strategy", minimal reliable rule set.
+- [0007](adr/0007-three-layer-observability.md) — three-layer observability; cost per Review is the primary metric.
 
-## Диаграммы
+## Diagrams
 
-Два формата одного и того же:
+Two formats of the same content:
 
-- **Mermaid в [docs/C4.md](docs/C4.md)** — рендерится прямо на GitHub, без инструментов. Основной способ чтения.
-- **[docs/diagrams/](docs/diagrams/) (d2)** + сборка «красивого» PDF-отчёта в [report/](report/) — требует `d2`, `pandoc`, headless `chromium`:
+- **Mermaid in [docs/C4.md](docs/C4.md)** — renders on GitHub with no tooling. Primary way to read.
+- **[docs/diagrams/](docs/diagrams/) (d2)** + building a polished PDF report in [report/](report/) — requires `d2`, `pandoc`, headless `chromium`:
   ```bash
   cd report && make diagrams pdf html
   ```
 
-## Проверка контракта
+## Contract check
 
 ```bash
-redocly lint api/openapi.yaml   # требует redocly CLI
+redocly lint api/openapi.yaml   # requires redocly CLI
 ```
 
-Кода приложения в репозитории нет — только документация. Соглашения для AI-помощников и разработчиков — в [CLAUDE.md](CLAUDE.md).
+There is no application code in the repository — documentation only. Conventions for AI assistants and developers are in [CLAUDE.md](CLAUDE.md).

@@ -1,80 +1,80 @@
-# Бэклог и план по фазам
+# Backlog and phase plan
 
-Соло-разработка по вечерам с AI-помощниками (5–10 ч/нед): задача = 1–2 вечера, спринты по 2 недели. Модули — по [struktura проекта](#структура-репозитория-целевая) ниже. Эпики = milestone'ы, задачи = issues.
+Solo evening development with AI assistants (5–10 h/week): a task = 1–2 evenings, sprints of 2 weeks. Modules — per [repository structure](#repository-structure-target) below. Epics = milestones, tasks = issues.
 
-**Критический путь:** каркас → `LLMClient` → ингест → пер-слайдовый анализ → **метрика качества** (recall/мусор). Пока качество ядра не дотянуто до цели — веб вокруг слабого ядра не строим.
+**Critical path:** scaffold → `LLMClient` → ingest → per-slide analysis → **quality metric** (recall/junk). Until core quality hits the target — do not build a web shell around a weak core.
 
-## Фазы
+## Phases
 
-| Фаза | Содержание | Оценка |
+| Phase | Content | Estimate |
 |---|---|---|
-| 0. Фундамент | репозиторий, [CLAUDE.md](../CLAUDE.md), Docker (FastAPI+Postgres+LibreOffice), spike VLM на 3 слайдах, тестовый набор дек | ~12 ч |
-| 1. Ядро пайплайна ⭐ | ингест → анализаторы → агрегация → аннотация → автофиксы → отчёт; **самое важное**, ~60 % усилий | ~50 ч |
-| 2. Платформа | auth, кабинет, загрузка, воркер, страница Отчёта, PDF, лендинг, деплой + observability | ~35 ч |
-| 3. Валидация и оплата | раздача бесплатных Разборов, обратная связь, тарифы + ЮKassa | ~10 ч |
-| 4. Режим репетиции | запись питча в браузере, точный тайминг по слайдам, динамика между прогонами | ~14 ч |
+| 0. Foundation | repository, [CLAUDE.md](../CLAUDE.md), Docker (FastAPI+Postgres+LibreOffice), VLM spike on 3 slides, test deck set | ~12 h |
+| 1. Pipeline core ⭐ | ingest → analyzers → aggregation → annotation → autofixes → report; **most important**, ~60 % of effort | ~50 h |
+| 2. Platform | auth, cabinet, upload, worker, Report page, PDF, landing, deploy + observability | ~35 h |
+| 3. Validation and payments | free Review giveaways, feedback, pricing + YooKassa | ~10 h |
+| 4. Rehearsal mode | in-browser pitch recording, precise per-slide timing, cross-run dynamics | ~14 h |
 
-## Фаза 0 — Фундамент
+## Phase 0 — Foundation
 
-- **Каркас репозитория + CLAUDE.md.** Дерево из [struktura](#структура-репозитория-целевая), правило «`backend/core/` не импортирует `backend/app/`» ([ADR 0001](../adr/0001-pipeline-pure-library.md)), контракты `Finding`, соглашение о промптах.
-- **config.py + database.py.** `Settings` (все ENV с валидацией), async engine, `get_db()`, `.env.example`.
-- **Docker Compose (dev).** app / worker / db / redis; Dockerfile с LibreOffice + ffmpeg + RU-шрифтами; `GET /health`.
-- **Observability с первого дня** ([ADR 0007](../adr/0007-three-layer-observability.md)): structlog (JSON, `review_id` в contextvars), Sentry, Langfuse-обёртка вызовов.
-- **Spike:** 3 слайда через VLM вручную → `docs/spike-notes.md` (что ловит, $/слайд, таксономия Категорий).
-- **Тестовый набор:** 10–15 дек (≥5 RU, ≥3 с графиками, 2–3 плохих); 3 размечены в `backend/tests/golden/`.
+- **Repository scaffold + CLAUDE.md.** Tree from [structure](#repository-structure-target), rule “`backend/core/` does not import `backend/app/`” ([ADR 0001](../adr/0001-pipeline-pure-library.md)), `Finding` contracts, prompt conventions.
+- **config.py + database.py.** `Settings` (all ENV with validation), async engine, `get_db()`, `.env.example`.
+- **Docker Compose (dev).** app / worker / db / redis; Dockerfile with LibreOffice + ffmpeg + RU fonts; `GET /health`.
+- **Observability from day one** ([ADR 0007](../adr/0007-three-layer-observability.md)): structlog (JSON, `review_id` in contextvars), Sentry, Langfuse call wrapper.
+- **Spike:** 3 slides through VLM by hand → `docs/spike-notes.md` (what it catches, $/slide, Category taxonomy).
+- **Test set:** 10–15 decks (≥5 RU, ≥3 with charts, 2–3 bad); 3 labeled in `backend/tests/golden/`.
 
-## Фаза 1 — Ядро пайплайна ⭐
+## Phase 1 — Pipeline core ⭐
 
-- **`backend/core/schemas.py`** — все контракты (`Finding`, `Category`, `Severity`, `BBox`, `TranscriptSegment`, `DeliveryMetrics`, `ChartReading`, `SuspiciousRegion`, `ReviewResult`). Только pydantic.
-- **`LLMClient` + `PromptRegistry` + `ReviewContext`** — vision + structured output, retry, backoff, Langfuse-span, стоимость; промпты-файлы с frontmatter.
-- **`DeckIngestor` + `AudioExtractor` + `Transcriber`** — PPTX/PDF → PNG; аудио → WAV → faster-whisper; `compute_delivery`.
-- **`BaseAnalyzer` + `PipelineOrchestrator` + CLI** — graceful degradation, порядок из конфига, `python -m core.run`.
-- **Анализаторы:** `SlideAnalyzer` (v1 промпт) → `ZoomAgent` → `DeckAnalyzer` → `ChartChecker` → `CrossModalAnalyzer` ([ADR 0002](../adr/0002-vlm-pipeline-hybrid-analyzers.md), [ADR 0005](../adr/0005-crossmodal-delivery-analysis.md)).
-- **Сборка:** `Aggregator` + `DeckScorer`, `Annotator` (Pillow), `PptxFixer` ([ADR 0006](../adr/0006-pptx-autofix-strategy.md)), `ReportBuilder` + `PdfExporter`.
-- **Eval-скрипт** `backend/tests/golden/eval.py` → `docs/quality-log.md`. **Критерий готовности фазы: recall ≥ 70 %, мусор < 20 %.**
+- **`backend/core/schemas.py`** — all contracts (`Finding`, `Category`, `Severity`, `BBox`, `TranscriptSegment`, `DeliveryMetrics`, `ChartReading`, `SuspiciousRegion`, `ReviewResult`). Pydantic only.
+- **`LLMClient` + `PromptRegistry` + `ReviewContext`** — vision + structured output, retry, backoff, Langfuse span, cost; prompt files with frontmatter.
+- **`DeckIngestor` + `AudioExtractor` + `Transcriber`** — PPTX/PDF → PNG; audio → WAV → faster-whisper; `compute_delivery`.
+- **`BaseAnalyzer` + `PipelineOrchestrator` + CLI** — graceful degradation, config-driven order, `python -m core.run`.
+- **Analyzers:** `SlideAnalyzer` (v1 prompt) → `ZoomAgent` → `DeckAnalyzer` → `ChartChecker` → `CrossModalAnalyzer` ([ADR 0002](../adr/0002-vlm-pipeline-hybrid-analyzers.md), [ADR 0005](../adr/0005-crossmodal-delivery-analysis.md)).
+- **Assembly:** `Aggregator` + `DeckScorer`, `Annotator` (Pillow), `PptxFixer` ([ADR 0006](../adr/0006-pptx-autofix-strategy.md)), `ReportBuilder` + `PdfExporter`.
+- **Eval script** `backend/tests/golden/eval.py` → `docs/quality-log.md`. **Phase exit criterion: recall ≥ 70 %, junk < 20 %.**
 
-## Фаза 2 — Платформа
+## Phase 2 — Platform
 
-- ORM-модели + Alembic (User, Review, FindingRow, FileAsset, Event, Rehearsal-пустая).
-- Auth API (fastapi-users, JWT access+refresh, верификация почты).
-- Сервисы: `Storage`, `EmailService`, `EventTracker`, `LimitService` (SELECT FOR UPDATE, 402).
+- ORM models + Alembic (User, Review, FindingRow, FileAsset, Event, empty Rehearsal).
+- Auth API (fastapi-users, JWT access+refresh, email verification).
+- Services: `Storage`, `EmailService`, `EventTracker`, `LimitService` (SELECT FOR UPDATE, 402).
 - `ReviewService` + `backend/worker/tasks.py` ([ADR 0003](../adr/0003-async-review-worker.md)); Reviews/Findings/Files/Events API ([API.md](API.md)).
-- Frontend: каркас SPA, генерация типов из OpenAPI, auth-страницы, Кабинет + загрузка, **страница Отчёта** (витрина), лендинг с живым примером ([DESIGN.md](DESIGN.md)).
-- Деплой на VPS + Grafana/Loki/Prometheus + алерты ([DEPLOY.md](DEPLOY.md)).
+- Frontend: SPA scaffold, OpenAPI type generation, auth pages, Cabinet + upload, **Report page** (showcase), landing with live example ([DESIGN.md](DESIGN.md)).
+- VPS deploy + Grafana/Loki/Prometheus + alerts ([DEPLOY.md](DEPLOY.md)).
 
-## Фаза 3 — Валидация и монетизация
+## Phase 3 — Validation and monetization
 
-- Раздать 30–50 бесплатных Разборов (консультанты/аналитики/стартаперы), собрать «за что заплатил бы».
-- Контент-маркетинг: публичные разборы известных презентаций.
-- Тарифы + ЮKassa (идемпотентный webhook), воронка-дашборд, пополнение golden-разметки из 👎.
+- Give away 30–50 free Reviews (consultants/analysts/founders), collect “what I would pay for.”
+- Content marketing: public reviews of well-known presentations.
+- Pricing + YooKassa (idempotent webhook), funnel dashboard, grow golden labels from 👎.
 
-## Фаза 4 — Режим репетиции
+## Phase 4 — Rehearsal mode
 
-- Страница репетиции: показ слайдов + `MediaRecorder` (аудио + таймкоды переключений → точные `SlideTiming`).
-- `CrossModalAnalyzer` на точном тайминге: карта тайминга, слайды-«болота» (>2 мин) и «заглушки» (<5 с), mismatch с таймкодами.
-- Динамика между прогонами (`attempt_num`) → повод для подписки, а не разовой оплаты.
+- Rehearsal page: slide playback + `MediaRecorder` (audio + switch timestamps → precise `SlideTiming`).
+- `CrossModalAnalyzer` on precise timing: timing map, “swamp” slides (>2 min) and “stubs” (<5 s), mismatch with timestamps.
+- Cross-run dynamics (`attempt_num`) → reason for subscription, not one-off payment.
 
-## Структура репозитория (целевая)
+## Repository structure (target)
 
-Два верхнеуровневых модуля — **`backend/`** и **`frontend/`**, всё остальное внутри них (как в референсном проекте). Сборка — один multi-stage `Dockerfile`: стадия 1 собирает SPA (`vite build`), стадия 2 — backend-образ, куда `dist` кладётся в `./static`; тот же образ запускается как `app` и как `worker`.
+Two top-level modules — **`backend/`** and **`frontend/`**, everything else inside them (as in the reference project). Build — one multi-stage `Dockerfile`: stage 1 builds the SPA (`vite build`), stage 2 is the backend image with `dist` placed in `./static`; the same image runs as `app` and as `worker`.
 
 ```
 slidelens/
-├── backend/                  # Python-проект (uv + pyproject.toml + uv.lock)
-│   ├── app/                  # веб-слой: main.py, config.py, db.py, deps.py, security.py,
-│   │                         #   api/v1/ (роуты), services/, schemas/, models/, seed.py
-│   ├── core/                 # чистая библиотека: run.py, context.py, schemas.py, llm/, ingest.py,
+├── backend/                  # Python project (uv + pyproject.toml + uv.lock)
+│   ├── app/                  # web layer: main.py, config.py, db.py, deps.py, security.py,
+│   │                         #   api/v1/ (routes), services/, schemas/, models/, seed.py
+│   ├── core/                 # pure library: run.py, context.py, schemas.py, llm/, ingest.py,
 │   │                         #   transcribe.py, analyzers/, aggregate.py, annotate.py, fix.py,
-│   │                         #   report.py, prompts/ (версионированные md)
-│   ├── worker/               # tasks.py: process_review, cleanup_expired_files (связывает app и core)
-│   ├── observability/        # setup.py: structlog, Sentry, метрики
+│   │                         #   report.py, prompts/ (versioned md)
+│   ├── worker/               # tasks.py: process_review, cleanup_expired_files (bridges app and core)
+│   ├── observability/        # setup.py: structlog, Sentry, metrics
 │   ├── migrations/           # Alembic
-│   └── tests/                # unit/ · integration/ · golden/ (деки + разметка + eval)
+│   └── tests/                # unit/ · integration/ · golden/ (decks + labels + eval)
 ├── frontend/                 # React + Vite + TS SPA
 │   └── src/                  # pages/, components/, api/, hooks/, auth/, lib/, App.tsx, main.tsx
-├── Dockerfile                # multi-stage: frontend build → backend-образ (dist → ./static)
+├── Dockerfile                # multi-stage: frontend build → backend image (dist → ./static)
 ├── docker-compose.yml · Makefile · CLAUDE.md · README.md
-└── tasks/                    # тикеты разработки (см. tasks/README.md)
+└── tasks/                    # development tickets (see tasks/README.md)
 ```
 
-Ключевое правило: `backend/core/` **не** импортирует `backend/app/` — их связывает только `backend/worker/tasks.py` ([ADR 0001](../adr/0001-pipeline-pure-library.md)). Разделение на `app` / `core` / `worker` живёт внутри `backend/`, а не на верхнем уровне репозитория.
+Key rule: `backend/core/` does **not** import `backend/app/` — only `backend/worker/tasks.py` bridges them ([ADR 0001](../adr/0001-pipeline-pure-library.md)). The `app` / `core` / `worker` split lives inside `backend/`, not at the repository top level.

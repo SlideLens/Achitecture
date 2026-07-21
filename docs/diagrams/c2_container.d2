@@ -1,10 +1,10 @@
 direction: down
 
 # =============================================================================
-# C2 — КОНТЕЙНЕРЫ SlideLens (VPS · Docker Compose · один домен Caddy)
+# C2 — CONTAINERS SlideLens (VPS · Docker Compose · single Caddy domain)
 # =============================================================================
 
-user: "Пользователь (браузер)" {
+user: "User (browser)" {
   shape: person
   style.fill: "#e2e8f0"
 }
@@ -13,24 +13,24 @@ vps: "VPS · Docker Compose" {
   style.fill: "#f8fafc"
   style.stroke: "#94a3b8"
 
-  caddy: "Caddy\n(HTTPS/TLS, один домен: реверс-прокси всего на app)" {
+  caddy: "Caddy\n(HTTPS/TLS, single domain: reverse-proxy everything to app)" {
     style.fill: "#f1f5f9"
     style.stroke: "#94a3b8"
   }
-  spa: "Frontend · React SPA\n(Vite + TS + Tailwind + TanStack Query;\ndist вшит в образ → ./static)" {
+  spa: "Frontend · React SPA\n(Vite + TS + Tailwind + TanStack Query;\ndist baked into image → ./static)" {
     style.fill: "#dbeafe"
     style.stroke: "#3b82f6"
   }
-  api: "Backend · FastAPI\n(JSON API + JWT + лимиты, приём файлов, отдача отчёта)" {
+  api: "Backend · FastAPI\n(JSON API + JWT + limits, file upload, report delivery)" {
     style.fill: "#dbeafe"
     style.stroke: "#3b82f6"
   }
-  worker: "Воркер · пайплайн разбора\n(ARQ: ingest → анализ → отчёт, cleanup expired)" {
+  worker: "Worker · review pipeline\n(ARQ: ingest → analysis → report, cleanup expired)" {
     style.fill: "#d1e7dd"
     style.stroke: "#0f5132"
   }
 
-  data: "Хранилища" {
+  data: "Storage" {
     style.fill: "#f8fafc"
     style.stroke: "#cbd5e1"
 
@@ -38,17 +38,17 @@ vps: "VPS · Docker Compose" {
       shape: cylinder
       style.fill: "#f5f5f5"
     }
-    redis: "Redis\n(очередь ARQ)" {
+    redis: "Redis\n(ARQ queue)" {
       shape: cylinder
       style.fill: "#f5f5f5"
     }
-    files: "Файлы: диск → S3/R2\n(оригиналы, PNG, отчёты, fixed.pptx)" {
+    files: "Files: disk → S3/R2\n(originals, PNG, reports, fixed.pptx)" {
       shape: cylinder
       style.fill: "#f5f5f5"
     }
   }
 
-  glp: "Grafana + Loki + Prometheus\n(логи, метрики, дашборды, алерты)" {
+  glp: "Grafana + Loki + Prometheus\n(logs, metrics, dashboards, alerts)" {
     style.fill: "#faf5ff"
     style.stroke: "#a855f7"
   }
@@ -63,21 +63,21 @@ email: "SMTP" {
   style.stroke: "#737373"
 }
 
-# --- Потоки ---
+# --- Flows ---
 user -> vps.caddy: "HTTPS"
-vps.caddy -> vps.api: "TLS реверс-прокси, весь трафик"
-vps.api -> vps.spa: "отдаёт SPA из ./static (StaticFiles)"
+vps.caddy -> vps.api: "TLS reverse-proxy, all traffic"
+vps.api -> vps.spa: "serves SPA from ./static (StaticFiles)"
 vps.api -> vps.data.db: "SQL"
-vps.api -> vps.data.redis: "поставить задачу"
-vps.api -> vps.data.files: "сохранить / отдать"
-vps.data.redis -> vps.worker: "задача разбора"
+vps.api -> vps.data.redis: "enqueue job"
+vps.api -> vps.data.files: "save / serve"
+vps.data.redis -> vps.worker: "review job"
 vps.worker -> vlm: "vision (HTTPS)"
 vps.worker -> vps.data.db: "findings, score, status"
-vps.worker -> vps.data.files: "артефакты (PNG, fixed.pptx, PDF)"
-vps.worker -> email: "отчёт готов (SMTP)"
-vps.api -> vps.glp: "логи, метрики" {
+vps.worker -> vps.data.files: "artifacts (PNG, fixed.pptx, PDF)"
+vps.worker -> email: "report ready (SMTP)"
+vps.api -> vps.glp: "logs, metrics" {
   style.stroke-dash: 5
 }
-vps.worker -> vps.glp: "логи, метрики, стоимость" {
+vps.worker -> vps.glp: "logs, metrics, cost" {
   style.stroke-dash: 5
 }

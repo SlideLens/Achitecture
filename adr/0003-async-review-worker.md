@@ -1,37 +1,37 @@
-# ADR 0003: Асинхронный фоновый воркер вместо синхронного HTTP
+# ADR 0003: Async background worker instead of synchronous HTTP
 
-**Статус:** Принято
-**Дата:** 10 июня 2026 г.
-**Контекст решения:** обработка Разбора, взаимодействие фронта и бэкенда
+**Status:** Accepted
+**Date:** 10 June 2026
+**Decision context:** Review processing, frontend–backend interaction
 
-## 1. Контекст
+## 1. Context
 
-Разбор 20-слайдовой Деки идёт **2–5 минут**: рендер, десятки VLM-вызовов, транскрипция, автофиксы. Держать HTTP-запрос открытым столько нельзя — таймауты прокси/браузера, потерянные соединения, невозможность показать прогресс, риск потерять работу при рестарте.
+A Review of a 20-slide Deck takes **2–5 minutes**: render, dozens of VLM calls, transcription, autofixes. Holding an HTTP request open that long is not viable — proxy/browser timeouts, dropped connections, no progress UX, and risk of losing work on restart.
 
-## 2. Решение
+## 2. Decision
 
-Разнести приём файла и его обработку:
+Separate file acceptance from processing:
 
-1. **Приём (быстрый):** `POST /reviews` валидирует MIME/размер, сохраняет файлы через `Storage`, создаёт `Review(status=queued)`, ставит задачу в очередь и **сразу** отвечает `202` + `ReviewOut`.
-2. **Обработка (фоновая):** воркер `process_review` — скачивает файлы в workdir, гоняет `PipelineOrchestrator.run()`, пишет Находки/Скор/артефакты в БД и Storage, ставит `status=done` и шлёт email. Исключения пайплайна → `status=failed` + человекочитаемый `fail_reason` + Sentry.
-3. **Статус:** фронт поллит `GET /reviews/{id}` (TanStack Query, `refetchInterval=5000`), останавливаясь на `done`/`failed`. Реалтайм-прогресс по шагам сознательно не делаем — хватает статуса + email.
-4. **Очередь: ARQ + Redis с самого начала.** Воркер — отдельный процесс (в MVP тот же Docker-образ, что и `app`, запускается другой командой; см. [DEPLOY.md](../docs/DEPLOY.md)), задачи кладутся в Redis. Периодическая задача `cleanup_expired_files` (cron ARQ) удаляет `FileAsset` с истёкшим `expires_at`.
+1. **Acceptance (fast):** `POST /reviews` validates MIME/size, stores files via `Storage`, creates `Review(status=queued)`, enqueues a job, and **immediately** responds `202` + `ReviewOut`.
+2. **Processing (background):** worker `process_review` — downloads files into a workdir, runs `PipelineOrchestrator.run()`, writes Findings/Score/artifacts to DB and Storage, sets `status=done` and sends email. Pipeline exceptions → `status=failed` + human-readable `fail_reason` + Sentry.
+3. **Status:** the frontend polls `GET /reviews/{id}` (TanStack Query, `refetchInterval=5000`), stopping on `done`/`failed`. Real-time step progress is deliberately not implemented — status + email are enough.
+4. **Queue: ARQ + Redis from day one.** The worker is a separate process (in MVP the same Docker image as `app`, started with a different command; see [DEPLOY.md](../docs/DEPLOY.md)); jobs are pushed to Redis. Periodic task `cleanup_expired_files` (ARQ cron) deletes `FileAsset` rows past `expires_at`.
 
-## 3. Рассмотренные альтернативы
+## 3. Alternatives considered
 
-- **Синхронный ответ в одном запросе.** Отклонено: таймауты, нет прогресса, теряется работа при рестарте.
-- **WebSocket/SSE со стримингом прогресса по шагам.** Отклонено для MVP: сложнее инфраструктурно, а ценности мало — пользователь всё равно уходит из вкладки на минуты; email по готовности решает задачу.
-- **In-process `FastAPI BackgroundTasks` на старте.** Отклонено: Разбор идёт 2–5 минут и гибнет при рестарте/деплое uvicorn, нагружает web-воркер и не даёт отдельно масштабировать обработку. Экономия «нет Redis» не окупается — Redis всё равно нужен, и переписывать задачи под ARQ позже дороже, чем сразу.
-- **Celery.** Отклонено: тяжелее ARQ, а для async-кодовой базы FastAPI ARQ роднее и легче в эксплуатации.
+- **Synchronous response in one request.** Rejected: timeouts, no progress, work lost on restart.
+- **WebSocket/SSE with step-level progress streaming.** Rejected for MVP: heavier infrastructure, little value — the user leaves the tab for minutes anyway; email on completion solves it.
+- **In-process `FastAPI BackgroundTasks` at the start.** Rejected: a Review runs 2–5 minutes and dies on uvicorn restart/deploy, loads the web worker, and does not allow scaling processing separately. Saving “no Redis” does not pay off — Redis is needed anyway, and rewriting jobs for ARQ later costs more than starting with it.
+- **Celery.** Rejected: heavier than ARQ; for an async FastAPI codebase ARQ fits better and is easier to operate.
 
-## 4. Последствия
+## 4. Consequences
 
-### Положительные
-- Мгновенный отклик на загрузку; обработка переживает закрытие вкладки.
-- Воркер масштабируется отдельно от API; при падении задача перезапускается.
-- `failed`-статус с `fail_reason` — честный UX вместо зависшего запроса.
+### Positive
+- Instant response on upload; processing survives closing the tab.
+- The worker scales separately from the API; on crash the job is retried.
+- `failed` status with `fail_reason` — honest UX instead of a hung request.
 
-### Отрицательные и риски
-- Нужна инфраструктура очереди (Redis) и общий Storage между API и воркером. *Митигация:* на MVP всё на одном хосте — `app` и `worker` из одного образа, Redis и локальный диск в том же docker-compose; вынос Storage в S3/R2 — по мере роста.
-- Пользователь ждёт email/поллинг, а не видит результат сразу. *Митигация:* явные статусы в кабинете, письмо по готовности.
-- Глубина очереди — риск деградации. *Митигация:* метрика `queue_depth` и алерт ([ADR 0007](0007-three-layer-observability.md)).
+### Negative and risks
+- Queue infrastructure (Redis) and shared Storage between API and worker are required. *Mitigation:* on MVP everything on one host — `app` and `worker` from one image, Redis and local disk in the same docker-compose; move Storage to S3/R2 as we grow.
+- The user waits for email/polling instead of seeing the result immediately. *Mitigation:* explicit statuses in the cabinet, email on readiness.
+- Queue depth is a degradation risk. *Mitigation:* `queue_depth` metric and alert ([ADR 0007](0007-three-layer-observability.md)).

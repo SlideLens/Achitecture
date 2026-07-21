@@ -1,116 +1,116 @@
-# Спецификация промптов
+# Prompt specification
 
-VLM-вызовы идут только через `LLMClient` ([ADR 0002](../adr/0002-vlm-pipeline-hybrid-analyzers.md)); напрямую `anthropic` в коде не импортируется. Промпты — версионированные md-файлы в `backend/core/prompts/` с frontmatter (`version`, `tier`); версия попадает в Langfuse-трейс → связь «версия ↔ качество» в `docs/quality-log.md`.
+VLM calls go only through `LLMClient` ([ADR 0002](../adr/0002-vlm-pipeline-hybrid-analyzers.md)); `anthropic` is never imported directly in application code. Prompts are versioned md files in `backend/core/prompts/` with frontmatter (`version`, `tier`); the version lands in the Langfuse trace → “version ↔ quality” linkage in `docs/quality-log.md`.
 
-## Общие правила вызова
+## Shared call rules
 
-- `temperature: 0`, ответ — строго JSON, валидируется pydantic-схемой. Невалидный JSON → **один** retry с текстом ошибки валидации в промпте; повторная осечка → анализатор пропускается (Разбор жив, [ADR 0002](../adr/0002-vlm-pipeline-hybrid-analyzers.md)).
-- Structured output через tool use; защитный парсинг (срезать ```json-заборы, `json.loads` в try/except).
-- Ретраи 429/529 с экспоненциальным backoff; таймаут из Settings.
-- Каждый вызов — Langfuse-span: промпт, ответ, токены, стоимость (инкремент в `ReviewContext`).
-- Язык Находок — **только русский (кириллица)** для `title` / `description` /
-  `fix_suggestion`, даже если слайды на английском. Enum `category`/`severity` —
-  латиница (технические коды). `title` ≤ 80 символов.
-- `tier` — `screening` (дешёвая модель для зум-скрининга) или `full` (дорогая для анализа); под будущую двухступенчатую модель.
+- `temperature: 0`, response is strict JSON, validated by a pydantic schema. Invalid JSON → **one** retry with the validation error text in the prompt; second miss → analyzer is skipped (Review stays alive, [ADR 0002](../adr/0002-vlm-pipeline-hybrid-analyzers.md)).
+- Structured output via tool use; defensive parsing (strip ```json fences, `json.loads` in try/except).
+- Retries on 429/529 with exponential backoff; timeout from Settings.
+- Every call is a Langfuse span: prompt, response, tokens, cost (incremented on `ReviewContext`).
+- Finding language — **Russian (Cyrillic) only** for `title` / `description` /
+  `fix_suggestion`, even when slides are in English. Enum `category`/`severity` —
+  Latin (technical codes). `title` ≤ 80 characters.
+- `tier` — `screening` (cheap model for zoom screening) or `full` (expensive for analysis); for a future two-tier model.
 
-## Общий контракт Находки (во всех анализаторах)
+## Shared Finding contract (all analyzers)
 
 ```jsonc
 { "findings": [ {
-  "slide_num": 7,                 // или null для уровня деки
+  "slide_num": 7,                 // or null for deck level
   "category": "TYPOGRAPHY|HIERARCHY|READABILITY|CONSISTENCY|CHART|NARRATIVE|SPEECH_MISMATCH|DELIVERY",
   "severity": "CRITICAL|MAJOR|MINOR",
-  "title": "...",                 // ≤ 80 символов
+  "title": "...",                 // ≤ 80 characters
   "description": "...",
   "fix_suggestion": "...",
-  "box_2d": [200, 100, 300, 400] | null,  // [ymin,xmin,ymax,xmax], целые 0..1000
+  "box_2d": [200, 100, 300, 400] | null,  // [ymin,xmin,ymax,xmax], integers 0..1000
   "auto_fixable": false
 } ] }
 ```
 
-**Формат рамки.** На проводе модель отдаёт `box_2d` — родной формат рамок Gemini
-(`[ymin, xmin, ymax, xmax]`, целые в шкале 0..1000). Модели обучены выдавать
-координаты именно так и на этом формате попадают в цель заметно точнее, чем на
-произвольном `{x,y,w,h}` во float. Внутри проекта формат один — `BBox` (0..1,
-x/y/w/h); конвертация живёт в одном месте, `core.geometry.box_2d_to_bbox`, и
-отбрасывает всё, что нельзя считать рамкой (не 4 числа, нулевая площадь).
+**Box format.** On the wire the model returns `box_2d` — Gemini’s native box
+format (`[ymin, xmin, ymax, xmax]`, integers on a 0..1000 scale). Models are trained
+to emit coordinates this way and hit targets noticeably more accurately than with
+arbitrary `{x,y,w,h}` floats. Inside the project there is one format — `BBox` (0..1,
+x/y/w/h); conversion lives in one place, `core.geometry.box_2d_to_bbox`, and
+drops anything that cannot be treated as a box (not 4 numbers, zero area).
 
-Общее правило качества во всех промптах: **«лучше 2 реальные находки, чем 6 натянутых».** Few-shot-примеры берутся из спайка (`docs/spike-notes.md`).
+Shared quality rule across all prompts: **“better 2 real findings than 6 stretched ones.”** Few-shot examples come from the spike (`docs/spike-notes.md`).
 
-## 1. Пер-слайдовый анализ (`SlideAnalyzer`, tier=full)
+## 1. Per-slide analysis (`SlideAnalyzer`, tier=full)
 
-**System (суть):**
+**System (essence):**
 ```
-Ты — сеньор-дизайнер презентаций. Разбери ОДИН слайд: визуальная иерархия,
-типографика, читаемость. Не выдумывай проблемы — лучше 2 реальные находки, чем 6 натянутых.
-Для каждой находки укажи box_2d проблемной области ([ymin,xmin,ymax,xmax], 0..1000) и,
-если проблему можно починить автоматически (мелкий шрифт, слабый контраст,
-почти-выровненный блок), выстави auto_fixable=true.
-Отдельным полем верни has_chart: есть ли на слайде диаграмма/график.
-Ответь строго JSON: {"findings": [...], "has_chart": bool}
+You are a senior presentation designer. Review ONE slide: visual hierarchy,
+typography, readability. Do not invent problems — better 2 real findings than 6 stretched ones.
+For each finding, provide box_2d of the problem region ([ymin,xmin,ymax,xmax], 0..1000) and,
+if the issue can be fixed automatically (small font, weak contrast,
+nearly misaligned block), set auto_fixable=true.
+In a separate field return has_chart: whether the slide has a chart/diagram.
+Reply with strict JSON: {"findings": [...], "has_chart": bool}
 ```
-**User:** PNG слайда + извлечённый python-pptx текст слайда (модель хуже читает мелкий текст с картинки).
-**has_chart** → вход для `ChartChecker`.
+**User:** slide PNG + slide text extracted via python-pptx (the model reads small text from the image poorly).
+**has_chart** → input for `ChartChecker`.
 
-## 2. Зум-скрининг (`ZoomAgent`, tier=screening)
+## 2. Zoom screening (`ZoomAgent`, tier=screening)
 
-**System (суть):**
+**System (essence):**
 ```
-Верни зоны слайда, которые стоит рассмотреть крупнее: мелкий текст, плотная таблица,
-график с числами. Максимум причин не выдумывай.
-Ответь строго JSON: {"regions": [{"box_2d": [520,60,950,940], "reason": "small_text|dense_table|chart"}]}
+Return slide regions worth inspecting closer: small text, dense table,
+chart with numbers. Do not invent reasons maximally.
+Reply with strict JSON: {"regions": [{"box_2d": [520,60,950,940], "reason": "small_text|dense_table|chart"}]}
 ```
-Затем по каждой зоне — кроп (Pillow, upscale ×2) → повторный анализ промптом §1 (tier=full). Кап 3 зума/слайд. Находки дедуплицируются с §1 по IoU.
+Then for each region — crop (Pillow, upscale ×2) → re-analyze with §1 prompt (tier=full). Cap 3 zooms/slide. Findings are deduplicated against §1 by IoU.
 
-## 3. Межслайдовый анализ (`DeckAnalyzer`, tier=full)
+## 3. Cross-slide analysis (`DeckAnalyzer`, tier=full)
 
-**System (суть):**
+**System (essence):**
 ```
-Ты видишь контактный лист (сетку миниатюр всех слайдов) и тексты слайдов.
-Найди: разнобой шрифтов/цветов/отступов, дубли слайдов, провалы нарратива
-(структура: проблема → решение → доказательства → CTA).
-Находки уровня деки помечай slide_num=null; привязанные к слайдам — их номером.
-Ответь строго JSON: {"findings": [...]}
+You see a contact sheet (grid of all slide thumbnails) and the slide texts.
+Find: inconsistent fonts/colors/margins, duplicate slides, narrative gaps
+(structure: problem → solution → evidence → CTA).
+Mark deck-level findings with slide_num=null; slide-bound ones — with their number.
+Reply with strict JSON: {"findings": [...]}
 ```
-**User:** 1–2 изображения контактного листа + тексты всех слайдов.
+**User:** 1–2 contact-sheet images + texts of all slides.
 
-## 4. Проверка графика (`ChartChecker`, tier=full)
+## 4. Chart check (`ChartChecker`, tier=full)
 
-Для слайдов с `has_chart`. Сначала структурированное чтение графика:
+For slides with `has_chart`. First, structured chart reading:
 ```
-Прочитай график структурно. Ответь строго JSON:
+Read the chart structurally. Reply with strict JSON:
 {"chart_type": "bar|line|pie|...", "y_axis_starts_at_zero": bool,
  "series": [{"label": "...", "values": [...]}], "value_labels_present": bool}
 ```
-Затем детерминированные проверки (в коде, не в LLM): ось Y не от нуля при разбросе < 2× → `CHART/MAJOR`; сумма долей pie ≠ 100 %; при приложенном Excel (openpyxl → dict листов) — сверка значений с источником. Смысловая сверка «подпись слайда противоречит данным графика» — отдельным LLM-вызовом.
+Then deterministic checks (in code, not in the LLM): Y axis not from zero when range < 2× → `CHART/MAJOR`; pie share sum ≠ 100 %; if Excel is attached (openpyxl → sheet dict) — reconcile values with the source. Semantic check “slide caption contradicts chart data” — a separate LLM call.
 
-## 5. Кросс-модальная сверка (`CrossModalAnalyzer`, tier=full)
+## 5. Cross-modal alignment (`CrossModalAnalyzer`, tier=full)
 
-После выравнивания Транскрипта по слайдам (MVP — эвристика; фаза 4 — точные `SlideTiming`, [ADR 0005](../adr/0005-crossmodal-delivery-analysis.md)):
+After aligning the Transcript to slides (MVP — heuristic; phase 4 — precise `SlideTiming`, [ADR 0005](../adr/0005-crossmodal-delivery-analysis.md)):
 ```
-Дан фрагмент речи и слайд, который в этот момент показывают.
-Если спикер утверждает то, что противоречит слайду, — верни находку SPEECH_MISMATCH.
-Также, если по речи слайд стоит доработать (спикер тратит на него много времени /
-пролистывает мгновенно / добавляет важное, чего нет на слайде), — верни рекомендацию.
-Ответь строго JSON: {"findings": [...]}
+Given a speech fragment and the slide shown at that moment.
+If the speaker claims something that contradicts the slide — return a SPEECH_MISMATCH finding.
+Also, if the speech suggests the slide should be revised (speaker spends a long time on it /
+skips it instantly / adds something important missing from the slide) — return a recommendation.
+Reply with strict JSON: {"findings": [...]}
 ```
-`DELIVERY`-находки (темп, паузы, паразиты) формируются из `DeliveryMetrics` **без LLM** (считаются из таймкодов Whisper).
+`DELIVERY` findings (pace, pauses, fillers) are built from `DeliveryMetrics` **without an LLM** (computed from Whisper timestamps).
 
-## 6. Дедупликация (`Aggregator`, tier=screening)
+## 6. Deduplication (`Aggregator`, tier=screening)
 
-При совпадении `slide_num` и пересечении bbox (IoU > 0.5) — короткий LLM-вопрос «это одна и та же проблема?» для схлопывания дублей от разных анализаторов.
+When `slide_num` matches and bboxes overlap (IoU > 0.5) — a short LLM question “is this the same problem?” to collapse duplicates from different analyzers.
 
-## Fallback без LLM
+## Fallback without LLM
 
-Метрики Подачи (`DeliveryMetrics`) и детерминированные проверки графиков (ось, сумма pie, сверка с Excel) работают **без** VLM — они переживают недоступность модели. Смысловые Находки (иерархия, нарратив, mismatch) при осечке модели просто отсутствуют в частичном отчёте, а не роняют Разбор.
+Delivery metrics (`DeliveryMetrics`) and deterministic chart checks (axis, pie sum, Excel reconcile) work **without** a VLM — they survive model unavailability. Semantic Findings (hierarchy, narrative, mismatch) simply miss from the partial report on model failure, and do not kill the Review.
 
-## Конфигурация (env)
+## Configuration (env)
 
-| Переменная | Что |
+| Variable | What |
 |---|---|
-| `LLM_API_KEY` | Ключ VLM (только на сервере) |
-| `LLM_MODEL_FULL` | id основной vision-модели |
-| `LLM_MODEL_SCREENING` | id дешёвой модели для скрининга/дедупа |
-| `LLM_TIMEOUT_SECONDS` | Таймаут вызова |
-| `LLM_MAX_ZOOMS_PER_SLIDE` | Кап зумов (по умолчанию 3) |
-| `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` | Трейсинг и стоимость |
+| `LLM_API_KEY` | VLM key (server-only) |
+| `LLM_MODEL_FULL` | id of the primary vision model |
+| `LLM_MODEL_SCREENING` | id of the cheap model for screening/dedupe |
+| `LLM_TIMEOUT_SECONDS` | Call timeout |
+| `LLM_MAX_ZOOMS_PER_SLIDE` | Zoom cap (default 3) |
+| `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` | Tracing and cost |

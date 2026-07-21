@@ -1,8 +1,8 @@
 direction: down
 
 # =============================================================================
-# C3 — КОМПОНЕНТЫ: веб-слой (app) ↔ воркер ↔ чистая библиотека (core)
-# Граница: backend/core/ не импортирует backend/app/ и не ходит в БД (ADR 0001)
+# C3 — COMPONENTS: web layer (app) ↔ worker ↔ pure library (core)
+# Boundary: backend/core/ does not import backend/app/ and does not touch DB (ADR 0001)
 # =============================================================================
 
 spa: "React SPA" {
@@ -10,17 +10,17 @@ spa: "React SPA" {
   style.fill: "#dbeafe"
 }
 
-app: "backend/app/ — веб-слой (знает про HTTP и БД)" {
+app: "backend/app/ — web layer (knows HTTP and DB)" {
   style.fill: "#eff6ff"
   style.stroke: "#3b82f6"
 
-  routers: "API-роутеры /api/v1\n(auth · reviews · findings · files · events)" {
+  routers: "API routers /api/v1\n(auth · reviews · findings · files · events)" {
     style.fill: "#dbeafe"
   }
   auth: "fastapi-users\n(JWT access+refresh, bcrypt)" {
     style.fill: "#dbeafe"
   }
-  rev_svc: "ReviewService\n(приём файла, лимиты, enqueue)" {
+  rev_svc: "ReviewService\n(file intake, limits, enqueue)" {
     style.fill: "#dbeafe"
   }
   services: "LimitService · Storage · EventTracker · EmailService" {
@@ -31,29 +31,29 @@ app: "backend/app/ — веб-слой (знает про HTTP и БД)" {
   }
 }
 
-worker: "backend/worker/ — связующее звено" {
+worker: "backend/worker/ — glue layer" {
   style.fill: "#f0fdf4"
   style.stroke: "#0f5132"
 
-  task: "process_review\nworkdir → Orchestrator → БД/Storage → email" {
+  task: "process_review\nworkdir → Orchestrator → DB/Storage → email" {
     style.fill: "#d1e7dd"
   }
 }
 
-core: "backend/core/ — чистая библиотека (VLM, whisper, pptx)" {
+core: "backend/core/ — pure library (VLM, whisper, pptx)" {
   style.fill: "#fefce8"
   style.stroke: "#ca8a04"
 
   orch: "PipelineOrchestrator + ReviewContext" {
     style.fill: "#fef9c3"
   }
-  llm: "LLMClient\n(vision, structured output, retry, стоимость → Langfuse)" {
+  llm: "LLMClient\n(vision, structured output, retry, cost → Langfuse)" {
     style.fill: "#fef9c3"
   }
   ingest: "DeckIngestor · AudioExtractor · Transcriber" {
     style.fill: "#fef9c3"
   }
-  analyzers: "Анализаторы\n(Slide · Zoom · Deck · Chart · CrossModal)" {
+  analyzers: "Analyzers\n(Slide · Zoom · Deck · Chart · CrossModal)" {
     style.fill: "#fef9c3"
   }
   assemble: "Aggregator · DeckScorer · Annotator · PptxFixer · ReportBuilder" {
@@ -70,18 +70,18 @@ vlm: "Claude API (vision)" {
   style.stroke: "#16a34a"
 }
 
-# --- Связи ---
+# --- Relationships ---
 spa -> app.routers: "REST/JSON"
-app.routers -> app.auth: "проверка JWT"
-app.routers -> app.rev_svc: "создать разбор"
-app.rev_svc -> app.services: "лимит, сохранение файла, событие"
+app.routers -> app.auth: "JWT check"
+app.routers -> app.rev_svc: "create review"
+app.rev_svc -> app.services: "limit, save file, event"
 app.rev_svc -> app.orm: "Review(queued)"
 app.rev_svc -> worker.task: "enqueue"
 worker.task -> core.orch: "run(ctx)"
 core.orch -> core.ingest
 core.orch -> core.analyzers
 core.orch -> core.assemble
-core.analyzers -> core.llm: "все VLM-вызовы"
+core.analyzers -> core.llm: "all VLM calls"
 core.llm -> vlm: "vision (HTTPS)"
 app.services -> app.orm
 app.orm -> db: "SQL"

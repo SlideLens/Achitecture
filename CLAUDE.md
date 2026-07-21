@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repository is
 
-This is the **architecture/design documentation** repo for **SlideLens** — a web platform where a user uploads a presentation (Дека, PPTX/PDF), optionally a pitch recording and an Excel of the underlying data, and a multimodal agent returns a senior-designer-level review: annotated slide problems, honesty checks on charts, a "speech ↔ slides" cross-check, and an auto-fixed copy of the file. There is **no application code here yet** — this repo is the spec the (future) implementation must follow. All content is in Russian; keep documentation edits in Russian to match.
+This is the **architecture/design documentation** repo for **SlideLens** — a web platform where a user uploads a presentation (Deck, PPTX/PDF), optionally a pitch recording and an Excel of the underlying data, and a multimodal agent returns a senior-designer-level Review: annotated slide problems, honesty checks on charts, a "speech ↔ slides" cross-check, and an auto-fixed copy of the file. There is **no application code here yet** — this repo is the spec the (future) implementation must follow. All documentation is in English; keep documentation edits in English to match.
 
 There are no build/lint/test commands, except linting the API contract: `redocly lint api/openapi.yaml` (requires the `redocly` CLI), and rendering diagrams/report: `cd report && make diagrams pdf html` (requires `d2`, `pandoc`, headless `chromium` — none needed just to read the docs, since [docs/C4.md](docs/C4.md) has the same diagrams in Mermaid). Everything else is Markdown + embedded Mermaid / d2 diagram sources.
 
@@ -13,7 +13,7 @@ There are no build/lint/test commands, except linting the API contract: `redocly
 Start from [README.md](README.md), which indexes everything. Read in this order when picking up context:
 
 1. [TASK.md](TASK.md) — original product statement (problem, MVP scope)
-2. [CONTEXT.md](CONTEXT.md) — **the glossary — binding.** Canonical terms for people, artifacts, review lifecycle, findings, pipeline, with explicit "avoid these synonyms" notes (e.g. always «Разбор» never «анализ/аудит»; «Находка» never «замечание/issue»; «Дека» never «презентация» as a field name). All other docs and future code identifiers use these terms exactly.
+2. [CONTEXT.md](CONTEXT.md) — **the glossary — binding.** Canonical terms for people, artifacts, Review lifecycle, Findings, pipeline, with explicit "avoid these synonyms" notes (e.g. always **Review** never "analysis/audit"; **Finding** never "remark/issue"; **Deck** never "presentation" as a field name). All other docs and future code identifiers use these terms exactly.
 3. [docs/PRD.md](docs/PRD.md) — user stories with acceptance criteria, AI functions (the 10 pipeline steps), data model summary, scope (MVP / phases / out-of-scope), test set, success metrics, risks
 4. [docs/C4.md](docs/C4.md) — C1–C3 diagrams + pipeline flow + ERD (replaces classic C4 level 4) + sequence diagram (Mermaid)
 5. [api/openapi.yaml](api/openapi.yaml) — REST contract (OpenAPI 3.1, **source of truth**): DTOs, endpoints, error codes, visibility rules. [docs/API.md](docs/API.md) is the human-readable companion — keep both in sync, openapi.yaml wins on conflict.
@@ -53,7 +53,7 @@ The repo has exactly **two top-level modules — `backend/` and `frontend/`** �
 - **`frontend/`** — the React/Vite/TS SPA (`src/` with `pages/`, `components/`, `api/`, `hooks/`, `auth/`, `lib/`).
 - **Repo root** — `Dockerfile`, `docker-compose.yml`, `Makefile`, `CLAUDE.md`, `README.md`, and `tasks/` (dev tickets).
 
-Full tree — [docs/BACKLOG.md](docs/BACKLOG.md#структура-репозитория-целевая).
+Full tree — [docs/BACKLOG.md](docs/BACKLOG.md#repository-structure-target).
 
 ## Planned implementation stack (for when code is added)
 

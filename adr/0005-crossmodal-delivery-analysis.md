@@ -1,41 +1,41 @@
-# ADR 0005: Кросс-модальная сверка и метрики Подачи; репетиция — фаза 4
+# ADR 0005: Cross-modal reconciliation and Delivery metrics; rehearsal — phase 4
 
-**Статус:** Принято
-**Дата:** 15 июня 2026 г.
-**Контекст решения:** анализ речи, выравнивание транскрипта по слайдам, границы MVP
+**Status:** Accepted
+**Date:** 15 June 2026
+**Decision context:** speech analysis, transcript-to-slide alignment, MVP boundaries
 
-## 1. Контекст
+## 1. Context
 
-Ключевая дифференциация продукта — не только слайды, но и **речь**: сверка «что говорит спикер ↔ что на слайде» и метрики Подачи. Для этого нужен транскрипт с таймкодами и его привязка к слайдам. Точную привязку даёт только запись, где известны моменты переключения слайдов, — а такой записи в MVP нет (пользователь грузит готовое видео/аудио с телефона или Zoom).
+A key product differentiator is not only slides but also **speech**: reconciling “what the speaker says ↔ what is on the slide” and Delivery metrics. That requires a timed transcript and its binding to slides. Precise binding only comes from a recording with known slide-change moments — and MVP has no such recording (the user uploads a finished video/audio from phone or Zoom).
 
-## 2. Решение
+## 2. Decision
 
-**Транскрипция — faster-whisper локально** (medium, RU) → `list[TranscriptSegment]` с таймкодами. Из видео берём только аудиодорожку (ffmpeg → WAV 16k mono); кадры не анализируем.
+**Transcription — faster-whisper locally** (medium, RU) → `list[TranscriptSegment]` with timestamps. From video we take only the audio track (ffmpeg → WAV 16k mono); frames are not analyzed.
 
-**Метрики Подачи** (`DeliveryMetrics`) считаются из таймкодов Whisper **без отдельной модели:** темп (слов/мин), Слова-паразиты (RU-словарь в constants), длинные паузы (> 3 с). Дёшево и детерминированно.
+**Delivery metrics** (`DeliveryMetrics`) are computed from Whisper timestamps **without a separate model:** pace (words/min), filler words (RU dictionary in constants), long pauses (> 3 s). Cheap and deterministic.
 
-**Выравнивание транскрипта по слайдам — двухуровневое:**
-- **MVP (эвристика):** привязка по упоминанию заголовков/чисел слайда + равномерное распределение остатка. Неточно, но достаточно, чтобы ловить грубые расхождения.
-- **Фаза 4 (точно):** Режим репетиции — пользователь листает слайды в браузере, `MediaRecorder` пишет аудио + таймкоды переключений → точные `SlideTiming`. Тот же `CrossModalAnalyzer` принимает точную привязку вместо эвристики.
+**Transcript-to-slide alignment — two-level:**
+- **MVP (heuristic):** bind by mentions of slide titles/numbers + even distribution of the remainder. Imprecise, but enough to catch gross mismatches.
+- **Phase 4 (precise):** Rehearsal mode — the user flips slides in the browser, `MediaRecorder` records audio + slide-change timestamps → precise `SlideTiming`. The same `CrossModalAnalyzer` accepts precise binding instead of the heuristic.
 
-**Находки речи:** LLM-сверка чанк «речь ↔ слайд» → `SPEECH_MISMATCH` (спикер утверждает X, слайд показывает Y). Плюс `DELIVERY`-находки из метрик и рекомендации к Деке («слайд 7 — 3 мин речи → раздели», «слайд 12 пролистнут за 5 с → убери»).
+**Speech Findings:** LLM reconciliation of a “speech ↔ slide” chunk → `SPEECH_MISMATCH` (speaker claims X, slide shows Y). Plus `DELIVERY` Findings from metrics and Deck recommendations (“slide 7 — 3 min of speech → split”, “slide 12 flipped in 5 s → remove”).
 
-**Режим репетиции вынесен в фазу 4** (после валидации ядра): в модели данных под него зарезервирована пустая таблица `Rehearsal`, чтобы будущая фича не ломала схему. Это превращает продукт из «одноразового аудита» в «тренажёр перед каждым выступлением» (динамика между прогонами → повод для подписки).
+**Rehearsal mode is deferred to phase 4** (after core validation): the data model reserves an empty `Rehearsal` table so the future feature does not break the schema. That turns the product from a “one-off audit” into a “trainer before every talk” (dynamics across runs → a reason to subscribe).
 
-## 3. Рассмотренные альтернативы
+## 3. Alternatives considered
 
-- **Диаризация + точное выравнивание из загруженной записи.** Отклонено для MVP: сложно и ненадёжно; эвристики хватает, а точность лучше получить бесплатно в фазе 4 из таймкодов браузера.
-- **Облачный STT вместо локального whisper.** Отклонено на старте: приватность (запись питча — личные данные) и стоимость; локальный whisper на CPU укладывается в бюджет времени Разбора.
-- **Анализ видеокадров (жесты, слайд на экране).** Отклонено: дорого и вне ценностного ядра; аудио + слайды закрывают 90 % пользы.
+- **Diarization + precise alignment from an uploaded recording.** Rejected for MVP: complex and unreliable; heuristics suffice, and precision is better obtained for free in phase 4 from browser timestamps.
+- **Cloud STT instead of local whisper.** Rejected at the start: privacy (pitch recording is personal data) and cost; local whisper on CPU fits within the Review time budget.
+- **Video-frame analysis (gestures, on-screen slide).** Rejected: expensive and outside the value core; audio + slides cover 90% of the benefit.
 
-## 4. Последствия
+## 4. Consequences
 
-### Положительные
-- Кросс-модальность — уникальная фича — есть уже в MVP на загруженной записи.
-- Метрики Подачи почти бесплатны (считаются из таймкодов, без модели).
-- Схема БД готова к фазе 4 без миграции-ломки.
+### Positive
+- Cross-modality — the unique feature — exists already in MVP on an uploaded recording.
+- Delivery metrics are nearly free (computed from timestamps, no model).
+- The DB schema is ready for phase 4 without a breaking migration.
 
-### Отрицательные и риски
-- Эвристическое выравнивание ошибается на слайдах без явных заголовков/чисел. *Митигация:* `SPEECH_MISMATCH` требует LLM-подтверждения; спорные привязки не превращаются в уверенные Находки.
-- Whisper добавляет минуты к Разбору с аудио. *Митигация:* модель small/medium, транскрипция параллельно рендеру слайдов.
-- RU-словарь паразитов неполон. *Митигация:* словарь в constants, пополняется по мере эксплуатации.
+### Negative and risks
+- Heuristic alignment errs on slides without clear titles/numbers. *Mitigation:* `SPEECH_MISMATCH` requires LLM confirmation; disputed bindings do not become confident Findings.
+- Whisper adds minutes to a Review with audio. *Mitigation:* small/medium model; transcription in parallel with slide render.
+- The RU filler dictionary is incomplete. *Mitigation:* dictionary in constants, extended as we operate.

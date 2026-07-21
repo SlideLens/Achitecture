@@ -1,10 +1,10 @@
 direction: down
 
 # =============================================================================
-# СХЕМА РАЗВЕРТЫВАНИЯ — VPS · Docker Compose · один домен Caddy (ADR 0004)
+# DEPLOYMENT DIAGRAM — VPS · Docker Compose · single Caddy domain (ADR 0004)
 # =============================================================================
 
-user: "Пользователь (браузер)" {
+user: "User (browser)" {
   shape: person
   style.fill: "#e2e8f0"
 }
@@ -13,21 +13,21 @@ vps: "VPS (4 vCPU / 8 GB) — Docker Compose" {
   style.fill: "#f8fafc"
   style.stroke: "#94a3b8"
 
-  caddy: "caddy\n(:443 HTTPS, авто-сертификат)\nTLS реверс-прокси → app" {
+  caddy: "caddy\n(:443 HTTPS, auto certificate)\nTLS reverse-proxy → app" {
     style.fill: "#f1f5f9"
   }
 
-  image: "Образ приложения (multi-stage)" {
+  image: "Application image (multi-stage)" {
     style.fill: "#eff6ff"
     style.stroke: "#3b82f6"
 
-    app: "app (uvicorn)\nFastAPI: REST API + отчёт + статика SPA (./static)" {
+    app: "app (uvicorn)\nFastAPI: REST API + report + SPA static (./static)" {
       style.fill: "#dbeafe"
     }
-    worker: "worker (arq)\nпайплайн + cron cleanup_expired_files" {
+    worker: "worker (arq)\npipeline + cron cleanup_expired_files" {
       style.fill: "#d1e7dd"
     }
-    note: "внутри образа: LibreOffice, ffmpeg,\nRU-шрифты (mscorefonts, PT), faster-whisper, python-pptx" {
+    note: "inside image: LibreOffice, ffmpeg,\nCyrillic fonts (mscorefonts, PT), faster-whisper, python-pptx" {
       style.fill: "#fefce8"
       style.stroke: "#ca8a04"
     }
@@ -37,19 +37,19 @@ vps: "VPS (4 vCPU / 8 GB) — Docker Compose" {
     shape: cylinder
     style.fill: "#f5f5f5"
   }
-  redis: "redis (очередь ARQ)" {
+  redis: "redis (ARQ queue)" {
     shape: cylinder
     style.fill: "#f5f5f5"
   }
-  files: "Файлы (volume → S3/R2)" {
+  files: "Files (volume → S3/R2)" {
     shape: cylinder
     style.fill: "#f5f5f5"
   }
-  obs_stack: "grafana + loki + prometheus\n(дашборды, алерты в Telegram)" {
+  obs_stack: "grafana + loki + prometheus\n(dashboards, Telegram alerts)" {
     style.fill: "#faf5ff"
     style.stroke: "#a855f7"
   }
-  env: ".env (секреты, вне git)\nLLM_API_KEY, SMTP_*, LANGFUSE_*, SENTRY_DSN" {
+  env: ".env (secrets, outside git)\nLLM_API_KEY, SMTP_*, LANGFUSE_*, SENTRY_DSN" {
     style.fill: "#fff7ed"
     style.stroke: "#ea580c"
   }
@@ -59,26 +59,26 @@ vlm: "Claude API (vision)" {
   style.fill: "#f0fdf4"
   style.stroke: "#16a34a"
 }
-smtp: "SMTP-провайдер" {
+smtp: "SMTP provider" {
   style.fill: "#fafafa"
   style.stroke: "#737373"
 }
-ci: "CI/CD (push в main)\ngit pull → build → up -d → alembic upgrade" {
+ci: "CI/CD (push to main)\ngit pull → build → up -d → alembic upgrade" {
   style.fill: "#f1f5f9"
   style.stroke: "#94a3b8"
 }
 
-# --- Связи ---
+# --- Relationships ---
 user -> vps.caddy: "HTTPS :443"
-vps.caddy -> vps.image.app: "весь трафик (HTTP)"
+vps.caddy -> vps.image.app: "all traffic (HTTP)"
 vps.image.app -> vps.db: "SQL"
 vps.image.app -> vps.redis: "enqueue"
 vps.image.app -> vps.files: "S3/FS API"
-vps.redis -> vps.image.worker: "задача"
+vps.redis -> vps.image.worker: "job"
 vps.image.worker -> vps.db: "SQL"
-vps.image.worker -> vps.files: "артефакты"
+vps.image.worker -> vps.files: "artifacts"
 vps.image.worker -> vlm: "HTTPS"
-vps.image.worker -> smtp: "письма"
+vps.image.worker -> smtp: "emails"
 vps.env -> vps.image: "env" {style.stroke-dash: 5}
-vps.image -> vps.obs_stack: "логи, метрики" {style.stroke-dash: 5}
-ci -> vps: "деплой (SSH)" {style.stroke-dash: 3}
+vps.image -> vps.obs_stack: "logs, metrics" {style.stroke-dash: 5}
+ci -> vps: "deploy (SSH)" {style.stroke-dash: 3}

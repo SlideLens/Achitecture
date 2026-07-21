@@ -1,139 +1,139 @@
-# PRD: SlideLens — агент-ревьюер презентаций
+# PRD: SlideLens — presentation review agent
 
-> Соло-проект по вечерам с AI-помощниками; реалистичный срок публичного MVP ~3–4 месяца. Исходная постановка: [TASK.md](../TASK.md).
-> Единый язык (термины строго по нему): [CONTEXT.md](../CONTEXT.md).
-> Архитектурные решения: [ADR 0001](../adr/0001-pipeline-pure-library.md) … [ADR 0007](../adr/0007-three-layer-observability.md).
+> Solo evening project with AI assistants; realistic public MVP timeline ~3–4 months. Original brief: [TASK.md](../TASK.md).
+> Shared vocabulary (terms are binding): [CONTEXT.md](../CONTEXT.md).
+> Architecture decisions: [ADR 0001](../adr/0001-pipeline-pure-library.md) … [ADR 0007](../adr/0007-three-layer-observability.md).
 
 ---
 
-## 1. Проблема и цель
+## 1. Problem and goal
 
-Люди, которые регулярно носят слайды руководству и клиентам, готовят презентации вслепую: взгляд сеньор-дизайнера дорог, а существующие инструменты либо косметические, либо дают критику уровня чек-листа и не смотрят на цифры и речь.
+People who regularly present slides to leadership and clients prepare decks blind: a senior designer's eye is expensive, and existing tools are either cosmetic or checklist-level critique that ignores numbers and speech.
 
-**Цель MVP:** платформа, где пользователь загружает Деку (+ опционально Запись питча и Excel), а мультимодальный агент выдаёт Разбор уровня сеньор-дизайнера: аннотированные проблемы, проверку графиков на честность, сверку «речь ↔ слайды» и Исправленную деку.
+**MVP goal:** a platform where the user uploads a Deck (+ optional pitch Recording and Excel), and a multimodal agent returns a senior-designer-level Review: annotated issues, chart honesty checks, speech ↔ slides alignment, and a Fixed deck.
 
-**Гвоздь продукта:** момент «агент показал аннотированный слайд с реальной проблемой + предложил исправление, а по графику поймал обрезанную ось». Всё остальное — обвязка вокруг качества ядра.
+**Product nail:** the moment “the agent showed an annotated slide with a real problem + suggested a fix, and on a chart caught a truncated axis.” Everything else is scaffolding around core quality.
 
-**Приоритет качества** (для спорных решений таргетируем в эту сторону): 1) **качество Находок** ядра (recall ≥ 70 %, мусор < 20 % на золотом наборе — иначе продукта нет, см. [ADR 0002](../adr/0002-vlm-pipeline-hybrid-analyzers.md)) → 2) **юнит-экономика** (стоимость Разбора под контролем, [ADR 0007](../adr/0007-three-layer-observability.md)) → 3) **надёжность** (частичный отчёт лучше `failed`) → 4) полнота фич — режутся первыми.
+**Quality priority** (when decisions conflict, bias this way): 1) **Finding quality** of the core (recall ≥ 70 %, junk < 20 % on the golden set — otherwise there is no product; see [ADR 0002](../adr/0002-vlm-pipeline-hybrid-analyzers.md)) → 2) **unit economics** (Review cost under control, [ADR 0007](../adr/0007-three-layer-observability.md)) → 3) **reliability** (a partial report beats `failed`) → 4) feature completeness — cut first.
 
-## 2. Целевая аудитория
+## 2. Target audience
 
-Люди, которые регулярно носят слайды руководству и клиентам: консультанты, аналитики, сейлзы, продакты, стартаперы. Корпоративные презентации, не пич-деки для VC. Русскоязычный рынок как стартовый.
+People who regularly present slides to leadership and clients: consultants, analysts, sales, PMs, founders. Corporate presentations, not VC pitch decks. Russian-speaking market as the starting beachhead.
 
-## 3. AI-функции (ядро)
+## 3. AI features (core)
 
-Все VLM-вызовы — только с бэкенда, через единый `LLMClient` ([ADR 0002](../adr/0002-vlm-pipeline-hybrid-analyzers.md)); структурированный JSON-вывод (Pydantic); каждый вызов трейсится в Langfuse со стоимостью. Пайплайн — чистая библиотека, не знает про веб и БД ([ADR 0001](../adr/0001-pipeline-pure-library.md)).
+All VLM calls run only from the backend, through a single `LLMClient` ([ADR 0002](../adr/0002-vlm-pipeline-hybrid-analyzers.md)); structured JSON output (Pydantic); every call is traced in Langfuse with cost. The pipeline is a pure library — it knows nothing about the web or the DB ([ADR 0001](../adr/0001-pipeline-pure-library.md)).
 
-Десять шагов Разбора (диаграмма — [C4.md](C4.md#пайплайн-разбора)):
+Ten Review steps (diagram — [C4.md](C4.md#review-pipeline)):
 
-1. **Ингест** — PPTX/PDF → PDF (LibreOffice headless) → PNG слайдов (pdf2image, 150 dpi); извлечение текстов слайдов (python-pptx).
-2. **Транскрипция** — Запись питча → WAV → faster-whisper → Транскрипт с таймкодами; метрики Подачи (темп, паузы, паразиты).
-3. **Пер-слайдовый анализ** (`SlideAnalyzer`) — иерархия, типографика, читаемость → Находки.
-4. **Зум-агент** (`ZoomAgent`) — пометка подозрительных зон → кроп ×2 → анализ крупно (≤ 3 зума/слайд).
-5. **Межслайдовый анализ** (`DeckAnalyzer`) — консистентность шрифтов/цветов, нарратив, дубли.
-6. **Проверка графиков** (`ChartChecker`) — обрезанные оси, pie ≠ 100 %, подпись против данных; сверка с Excel.
-7. **Кросс-модальная сверка** (`CrossModalAnalyzer`) — речь ↔ слайды (`SPEECH_MISMATCH`) + рекомендации к Деке по речи.
-8. **Агрегация** (`Aggregator` + `DeckScorer`) — дедуп, приоритизация, Скор 0–100.
-9. **Аннотация** (`Annotator`, Pillow) — рамки по BBox на скриншотах.
-10. **Автофиксы** (`PptxFixer`, python-pptx) — контраст/выравнивание/размер шрифта → Исправленная дека; **Отчёт** (HTML + PDF).
+1. **Ingest** — PPTX/PDF → PDF (LibreOffice headless) → slide PNGs (pdf2image, 150 dpi); extract slide text (python-pptx).
+2. **Transcription** — pitch Recording → WAV → faster-whisper → Transcript with timestamps; Delivery metrics (pace, pauses, fillers).
+3. **Per-slide analysis** (`SlideAnalyzer`) — hierarchy, typography, readability → Findings.
+4. **Zoom agent** (`ZoomAgent`) — flag suspicious regions → crop ×2 → close-up analysis (≤ 3 zooms/slide).
+5. **Cross-slide analysis** (`DeckAnalyzer`) — font/color consistency, narrative, duplicates.
+6. **Chart checks** (`ChartChecker`) — truncated axes, pie ≠ 100 %, caption vs data; reconcile with Excel.
+7. **Cross-modal alignment** (`CrossModalAnalyzer`) — speech ↔ slides (`SPEECH_MISMATCH`) + Deck recommendations from speech.
+8. **Aggregation** (`Aggregator` + `DeckScorer`) — dedupe, prioritization, Score 0–100.
+9. **Annotation** (`Annotator`, Pillow) — BBox frames on screenshots.
+10. **Autofixes** (`PptxFixer`, python-pptx) — contrast/alignment/font size → Fixed deck; **Report** (HTML + PDF).
 
-**Надёжность:** падение любого Анализатора не валит Разбор — он пропускается и логируется (частичный отчёт лучше, чем `failed`). Ошибка рендера ингеста → `failed` с человекочитаемым `fail_reason` и подсказкой «приложите PDF».
+**Reliability:** failure of any Analyzer does not kill the Review — it is skipped and logged (a partial report beats `failed`). Ingest render failure → `failed` with a human-readable `fail_reason` and the hint “attach a PDF.”
 
-## 4. Модель данных (кратко)
+## 4. Data model (brief)
 
-Полная ERD — в [C4.md](C4.md#уровень-4--модель-данных-erd). Ключевые сущности: **User** (plan, free_reviews_left), **Review** (status, score, fail_reason, deck_filename, n_slides, delivery_metrics), **Finding** (slide_num, category, severity, bbox, auto_fixable), **FileAsset** (kind, expires_at — автоудаление), **Event** (продуктовая аналитика), **Rehearsal** (пустая под фазу 4). Контракты пайплайна (`Finding`, `Category`, `Severity`, `BBox`, `DeliveryMetrics`) — pydantic, единый источник правды, см. [PROMPTS.md](PROMPTS.md).
+Full ERD — in [C4.md](C4.md#level-4--data-model-erd). Key entities: **User** (plan, free_reviews_left), **Review** (status, score, fail_reason, deck_filename, n_slides, delivery_metrics), **Finding** (slide_num, category, severity, bbox, auto_fixable), **FileAsset** (kind, expires_at — auto-delete), **Event** (product analytics), **Rehearsal** (empty stub for phase 4). Pipeline contracts (`Finding`, `Category`, `Severity`, `BBox`, `DeliveryMetrics`) — pydantic, single source of truth; see [PROMPTS.md](PROMPTS.md).
 
-## 5. User stories и критерии приёмки
+## 5. User stories and acceptance criteria
 
-### US-1. Регистрация и вход
-*Как новый пользователь, я регистрируюсь и подтверждаю почту, чтобы получить бесплатные Разборы.*
-- ✅ Регистрация (email + пароль), письмо с подтверждением, вход (JWT access + refresh).
-- ✅ Новый аккаунт: `plan = free`, `free_reviews_left = 2`.
-- ✅ Неподтверждённая почта → нельзя создать Разбор (403).
+### US-1. Registration and login
+*As a new user, I register and confirm my email to get free Reviews.*
+- ✅ Registration (email + password), confirmation email, login (JWT access + refresh).
+- ✅ New account: `plan = free`, `free_reviews_left = 2`.
+- ✅ Unconfirmed email → cannot create a Review (403).
 
-### US-2. Загрузка Деки и запуск Разбора
-*Как пользователь, я загружаю Деку и опционально Запись питча и Excel.*
-- ✅ Drag-and-drop Деки (PPTX/PDF, ≤ 50 МБ, ≤ 60 слайдов), опционально аудио/видео и `.xlsx`; валидация типа/размера **до** отправки.
-- ✅ `POST /reviews` → `202` + Разбор в статусе `queued`; пайплайн уходит в фон ([ADR 0003](../adr/0003-async-review-worker.md)).
-- ✅ Исчерпан лимит → `402` с понятным сообщением.
+### US-2. Upload Deck and start Review
+*As a user, I upload a Deck and optionally a pitch Recording and Excel.*
+- ✅ Drag-and-drop Deck (PPTX/PDF, ≤ 50 MB, ≤ 60 slides), optional audio/video and `.xlsx`; validate type/size **before** upload.
+- ✅ `POST /reviews` → `202` + Review in `queued`; pipeline runs in the background ([ADR 0003](../adr/0003-async-review-worker.md)).
+- ✅ Limit exhausted → `402` with a clear message.
 
-### US-3. Кабинет и статус Разбора
-*Как пользователь, я вижу список своих Разборов и их прогресс.*
-- ✅ Список карточек Разборов со статусами; фронт поллит статус (каждые 5 с) до `done`/`failed`.
-- ✅ `failed` показывает человекочитаемый `fail_reason`.
-- ✅ При `failed` зарезервированный бесплатный Разбор **возвращается** (`free_reviews_left` инкрементится обратно) — падение по нашей вине не тратит попытку. Отдельного ретрая нет: повтор = новая загрузка.
-- ✅ По готовности приходит email со ссылкой на Отчёт.
+### US-3. Cabinet and Review status
+*As a user, I see my Reviews and their progress.*
+- ✅ Review card list with statuses; frontend polls status (every 5 s) until `done`/`failed`.
+- ✅ `failed` shows a human-readable `fail_reason`.
+- ✅ On `failed`, the reserved free Review **is refunded** (`free_reviews_left` incremented back) — a failure on our side does not consume an attempt. No separate retry: retry = new upload.
+- ✅ On completion, an email arrives with a link to the Report.
 
-### US-4. Отчёт (гвоздь продукта)
-*Как пользователь, я открываю Отчёт и понимаю, что и почему не так с моей Декой.*
-- ✅ Общий Скор; Находки по слайдам с **аннотированными** скриншотами (клик по рамке → скролл к Находке).
-- ✅ Фильтр по Категории/Серьёзности (состояние — в URL, шарится ссылкой).
-- ✅ Блоки: «дека целиком», «графики», «Подача», «речь ↔ слайды» (последние два — если приложена Запись питча).
-- ✅ Каждая Находка: заголовок, описание, предложение по исправлению, кнопка 👎 (мусорная находка).
+### US-4. Report (product nail)
+*As a user, I open the Report and understand what is wrong with my Deck and why.*
+- ✅ Overall Score; Findings per slide with **annotated** screenshots (click a frame → scroll to Finding).
+- ✅ Filter by Category/Severity (state in URL, shareable via link).
+- ✅ Blocks: “whole deck,” “charts,” “Delivery,” “speech ↔ slides” (last two — if a pitch Recording was attached).
+- ✅ Each Finding: title, description, fix suggestion, 👎 button (junk finding).
 
-### US-5. Скачивание артефактов
-*Как пользователь, я забираю результат в удобном виде.*
-- ✅ Кнопка «Скачать PDF-отчёт».
-- ✅ Кнопка «Скачать исправленный PPTX» (Автофиксы применены к `auto_fixable`-Находкам; файл открывается в PowerPoint/LibreOffice без ошибок).
+### US-5. Download artifacts
+*As a user, I take the result in a convenient form.*
+- ✅ “Download PDF report” button.
+- ✅ “Download fixed PPTX” button (Autofixes applied to `auto_fixable` Findings; file opens in PowerPoint/LibreOffice without errors).
 
-### US-6. Проверка графиков на честность
-*Как пользователь, я хочу, чтобы агент ловил вводящие в заблуждение графики.*
-- ✅ Для слайдов с графиками: обрезанная ось Y, сумма долей pie ≠ 100 %, подпись противоречит данным → Находка `CHART`.
-- ✅ Если приложен Excel — сверка значений графика с источником.
+### US-6. Chart honesty checks
+*As a user, I want the agent to catch misleading charts.*
+- ✅ For slides with charts: truncated Y axis, pie share sum ≠ 100 %, caption contradicts data → `CHART` Finding.
+- ✅ If Excel is attached — reconcile chart values with the source.
 
-### US-7. Подача и речь ↔ слайды
-*Как пользователь, я приложил запись питча и хочу разбор не только слайдов, но и выступления.*
-- ✅ Метрики Подачи: темп (слов/мин), длинные паузы, слова-паразиты.
-- ✅ `SPEECH_MISMATCH`: спикер утверждает то, что противоречит слайду.
-- ✅ Рекомендации к Деке по речи («слайд 7 — 3 мин речи → раздели»).
+### US-7. Delivery and speech ↔ slides
+*As a user, I attached a pitch recording and want a review of the talk, not only the slides.*
+- ✅ Delivery metrics: pace (words/min), long pauses, filler words.
+- ✅ `SPEECH_MISMATCH`: speaker claims something that contradicts the slide.
+- ✅ Deck recommendations from speech (“slide 7 — 3 min of talk → split it”).
 
-### US-8. Приватность
-*Как пользователь, я загружаю конфиденциальные слайды и хочу гарантий.*
-- ✅ Файлы автоудаляются через N дней (`FileAsset.expires_at`), не используются для обучения — прописано в оферте.
-- ✅ Чужой Разбор/файл недоступен (проверка владельца на сервере, 404).
+### US-8. Privacy
+*As a user, I upload confidential slides and want guarantees.*
+- ✅ Files auto-delete after N days (`FileAsset.expires_at`), not used for training — stated in the terms of service.
+- ✅ Another user's Review/file is inaccessible (owner check on the server, 404).
 
-## 6. Скоуп
+## 6. Scope
 
-### MVP (обязательно)
-US-1 … US-8. Ядро пайплайна (шаги 1–10) с качеством на золотом наборе (recall ≥ 70 %, мусор < 20 %); auth + лимиты; кабинет и Отчёт (витрина — на неё тратим время); PDF и Исправленная дека; лендинг с живым примером; деплой на VPS с observability-стеком ([DEPLOY.md](DEPLOY.md)). Автофиксы — минимальный надёжный набор (шрифт/контраст/выравнивание).
+### MVP (required)
+US-1 … US-8. Pipeline core (steps 1–10) with golden-set quality (recall ≥ 70 %, junk < 20 %); auth + limits; cabinet and Report (the showcase — spend time here); PDF and Fixed deck; landing with a live example; VPS deploy with observability stack ([DEPLOY.md](DEPLOY.md)). Autofixes — minimal reliable set (font/contrast/alignment).
 
-### Stretch (если останется время, в порядке приоритета)
-1. Двухступенчатая модель (дешёвый скрининг → дорогой анализ) для снижения стоимости Разбора.
-2. Загрузка Резюме-независимо: поддержка большего числа форматов записи (mov/m4a).
-3. Полировка UI Отчёта: анимации раскрытия Находок, диффы «до/после» автофикса.
+### Stretch (if time remains, in priority order)
+1. Two-tier model (cheap screening → expensive analysis) to cut Review cost.
+2. Broader recording format support (mov/m4a), independent of Resume upload.
+3. Report UI polish: Finding expand animations, before/after autofix diffs.
 
-### Out of scope (сознательно нет в MVP)
-- **Режим репетиции** (запись в браузере) — вынесен в фазу 4, `Rehearsal` пока пустая таблица.
-- **Оплата** — фаза 3, поле `plan` есть, биллинга нет.
-- Команды, шаринг, комментарии; реалтайм-прогресс по шагам (хватает статуса + email).
-- Разбор лендингов, бренд-бук-комплаенс, интеграция с Google Slides.
-- Перевёрстка слайдов автофиксом (только точечные безопасные правки, [ADR 0006](../adr/0006-pptx-autofix-strategy.md)).
+### Out of scope (deliberately not in MVP)
+- **Rehearsal mode** (in-browser recording) — deferred to phase 4; `Rehearsal` stays an empty table for now.
+- **Payments** — phase 3; `plan` field exists, billing does not.
+- Teams, sharing, comments; realtime per-step progress (status + email is enough).
+- Landing-page reviews, brand-book compliance, Google Slides integration.
+- Full slide reflow via autofix (only targeted safe edits, [ADR 0006](../adr/0006-pptx-autofix-strategy.md)).
 
-### Бэклог (после публичного MVP)
-Режим репетиции и динамика между прогонами (фаза 4, [ADR 0005](../adr/0005-crossmodal-delivery-analysis.md)); тарифы и ЮKassa (фаза 3); контент-маркетинг публичными разборами. Полный план — [BACKLOG.md](BACKLOG.md).
+### Backlog (after public MVP)
+Rehearsal mode and cross-run dynamics (phase 4, [ADR 0005](../adr/0005-crossmodal-delivery-analysis.md)); pricing and YooKassa (phase 3); content marketing via public reviews. Full plan — [BACKLOG.md](BACKLOG.md).
 
-## 7. Стек
+## 7. Stack
 
-FastAPI (чистый JSON API) + React/Vite/TS/Tailwind/TanStack Query, PostgreSQL + SQLAlchemy 2.0 (Alembic-миграции), fastapi-users (JWT), фоновый воркер (ARQ + Redis), LibreOffice + pdf2image (рендер), Claude API (vision) через `LLMClient`, faster-whisper (транскрипция), python-pptx (автофиксы), Pillow (аннотации), weasyprint (PDF). Детали и отклонённые альтернативы — [ADR 0004](../adr/0004-stack-fastapi-react.md).
+FastAPI (pure JSON API) + React/Vite/TS/Tailwind/TanStack Query, PostgreSQL + SQLAlchemy 2.0 (Alembic migrations), fastapi-users (JWT), background worker (ARQ + Redis), LibreOffice + pdf2image (render), Claude API (vision) via `LLMClient`, faster-whisper (transcription), python-pptx (autofixes), Pillow (annotations), weasyprint (PDF). Details and rejected alternatives — [ADR 0004](../adr/0004-stack-fastapi-react.md).
 
-## 8. Тестовый и золотой набор
+## 8. Test and golden set
 
-- 10–15 публичных Дек (≥ 5 русскоязычных, ≥ 3 с графиками с данными, 2–3 заведомо плохих).
-- 3 Деки размечены вручную («золотой» список Находок: слайд + категория) — по ним считается recall/мусор (`backend/tests/golden/eval.py` → `docs/quality-log.md`).
+- 10–15 public Decks (≥ 5 Russian-language, ≥ 3 with charts that have data, 2–3 deliberately bad).
+- 3 Decks hand-labeled (“golden” Finding list: slide + category) — used to compute recall/junk (`backend/tests/golden/eval.py` → `docs/quality-log.md`).
 
-## 9. Метрики успеха MVP
+## 9. MVP success metrics
 
-- Качество ядра: recall ≥ 70 %, мусор < 20 % на золотом наборе.
-- Стоимость Разбора 20-слайдовой Деки под порогом (замер на фазе 1, алерт в Langfuse).
-- ≥ 50 % получивших Разбор открыли Отчёт полностью; ≥ 5 человек сказали «заплатил бы» с конкретной суммой.
+- Core quality: recall ≥ 70 %, junk < 20 % on the golden set.
+- Cost of a Review for a 20-slide Deck under the threshold (measured in phase 1, alert in Langfuse).
+- ≥ 50 % of people who got a Review opened the Report fully; ≥ 5 people said “I would pay” with a concrete amount.
 
-## 10. Риски
+## 10. Risks
 
-| Риск | Митигация |
+| Risk | Mitigation |
 |---|---|
-| Качество Разбора «пластиковое», как у конкурентов | Ядро (фаза 1) — 60 % усилий: золотой набор, итерации промптов в `backend/core/prompts/`, зум-агент, сверка с данными ([ADR 0002](../adr/0002-vlm-pipeline-hybrid-analyzers.md)) |
-| Дорогой VLM на пользователя | Лимиты; стоимость трейсится с 1-го дня; кап зумов; двухступенчатая модель в stretch ([ADR 0007](../adr/0007-three-layer-observability.md)) |
-| Большие модели скоро сделают это «из коробки» | Ценность — в пайплайне (зум, сверка с данными, автофикс) и продукте, не в самой модели |
-| PPTX-зоопарк ломает рендер (шрифты, анимации) | LibreOffice + RU-шрифты в образе; типизированные исключения ингеста; фолбэк «приложите PDF» ([ADR 0004](../adr/0004-stack-fastapi-react.md)) |
-| Конфиденциальные данные в чужих презентациях | Автоудаление файлов через N дней, не для обучения; прописано в оферте (US-8) |
-| Разбор идёт минуты — HTTP-таймаут | Асинхронный воркер, статус-поллинг, email по готовности ([ADR 0003](../adr/0003-async-review-worker.md)) |
+| Review quality feels “plastic,” like competitors | Core (phase 1) — 60 % of effort: golden set, prompt iterations in `backend/core/prompts/`, zoom agent, data reconciliation ([ADR 0002](../adr/0002-vlm-pipeline-hybrid-analyzers.md)) |
+| Expensive VLM per user | Limits; cost traced from day 1; zoom cap; two-tier model in stretch ([ADR 0007](../adr/0007-three-layer-observability.md)) |
+| Large models will soon do this “out of the box” | Value is in the pipeline (zoom, data reconciliation, autofix) and the product, not the model alone |
+| PPTX zoo breaks render (fonts, animations) | LibreOffice + RU fonts in the image; typed ingest exceptions; “attach a PDF” fallback ([ADR 0004](../adr/0004-stack-fastapi-react.md)) |
+| Confidential data in third-party presentations | Auto-delete files after N days, not for training; stated in ToS (US-8) |
+| Review takes minutes — HTTP timeout | Async worker, status polling, email on completion ([ADR 0003](../adr/0003-async-review-worker.md)) |
