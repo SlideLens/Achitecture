@@ -1,0 +1,88 @@
+direction: down
+
+# =============================================================================
+# C3 — КОМПОНЕНТЫ: веб-слой (app) ↔ воркер ↔ чистая библиотека (core)
+# Граница: backend/core/ не импортирует backend/app/ и не ходит в БД (ADR 0001)
+# =============================================================================
+
+spa: "React SPA" {
+  shape: person
+  style.fill: "#dbeafe"
+}
+
+app: "backend/app/ — веб-слой (знает про HTTP и БД)" {
+  style.fill: "#eff6ff"
+  style.stroke: "#3b82f6"
+
+  routers: "API-роутеры /api/v1\n(auth · reviews · findings · files · events)" {
+    style.fill: "#dbeafe"
+  }
+  auth: "fastapi-users\n(JWT access+refresh, bcrypt)" {
+    style.fill: "#dbeafe"
+  }
+  rev_svc: "ReviewService\n(приём файла, лимиты, enqueue)" {
+    style.fill: "#dbeafe"
+  }
+  services: "LimitService · Storage · EventTracker · EmailService" {
+    style.fill: "#dbeafe"
+  }
+  orm: "SQLAlchemy 2.0 + Alembic" {
+    style.fill: "#dbeafe"
+  }
+}
+
+worker: "backend/worker/ — связующее звено" {
+  style.fill: "#f0fdf4"
+  style.stroke: "#0f5132"
+
+  task: "process_review\nworkdir → Orchestrator → БД/Storage → email" {
+    style.fill: "#d1e7dd"
+  }
+}
+
+core: "backend/core/ — чистая библиотека (VLM, whisper, pptx)" {
+  style.fill: "#fefce8"
+  style.stroke: "#ca8a04"
+
+  orch: "PipelineOrchestrator + ReviewContext" {
+    style.fill: "#fef9c3"
+  }
+  llm: "LLMClient\n(vision, structured output, retry, стоимость → Langfuse)" {
+    style.fill: "#fef9c3"
+  }
+  ingest: "DeckIngestor · AudioExtractor · Transcriber" {
+    style.fill: "#fef9c3"
+  }
+  analyzers: "Анализаторы\n(Slide · Zoom · Deck · Chart · CrossModal)" {
+    style.fill: "#fef9c3"
+  }
+  assemble: "Aggregator · DeckScorer · Annotator · PptxFixer · ReportBuilder" {
+    style.fill: "#fef9c3"
+  }
+}
+
+db: "PostgreSQL" {
+  shape: cylinder
+  style.fill: "#f5f5f5"
+}
+vlm: "Claude API (vision)" {
+  style.fill: "#f0fdf4"
+  style.stroke: "#16a34a"
+}
+
+# --- Связи ---
+spa -> app.routers: "REST/JSON"
+app.routers -> app.auth: "проверка JWT"
+app.routers -> app.rev_svc: "создать разбор"
+app.rev_svc -> app.services: "лимит, сохранение файла, событие"
+app.rev_svc -> app.orm: "Review(queued)"
+app.rev_svc -> worker.task: "enqueue"
+worker.task -> core.orch: "run(ctx)"
+core.orch -> core.ingest
+core.orch -> core.analyzers
+core.orch -> core.assemble
+core.analyzers -> core.llm: "все VLM-вызовы"
+core.llm -> vlm: "vision (HTTPS)"
+app.services -> app.orm
+app.orm -> db: "SQL"
+worker.task -> app.orm: "findings, score, artifacts"

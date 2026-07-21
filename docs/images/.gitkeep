@@ -1,0 +1,3 @@
+# SVG-схемы здесь рендерятся из docs/diagrams/*.d2 командой:
+#   d2 --layout=elk docs/diagrams/<name>.d2 docs/images/<name>.svg
+# (или `make -C report diagrams`). Готовые .svg закоммичены. PNG требует headless-браузера.

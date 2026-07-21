@@ -1,0 +1,38 @@
+direction: down
+
+# =============================================================================
+# C1 — КОНТЕКСТ СИСТЕМЫ SlideLens
+# =============================================================================
+
+user: "Пользователь\n(консультант / аналитик / сейлз)" {
+  shape: person
+  style.fill: "#e2e8f0"
+}
+
+slidelens: "SlideLens\nАгент-ревьюер презентаций\n[Software System]" {
+  style.fill: "#0052cc"
+  style.stroke: "#002b80"
+  style.font-color: "#ffffff"
+}
+
+# --- Внешние сервисы ---
+vlm: "Claude API (vision)\n(Анализ слайдов и графиков)" {
+  style.fill: "#f0fdf4"
+  style.stroke: "#16a34a"
+}
+email: "Email-сервис (SMTP)\n(Подтверждение почты, готовность отчёта)" {
+  style.fill: "#fafafa"
+  style.stroke: "#737373"
+}
+obs: "Observability\n(Sentry · Langfuse: ошибки, трейсы VLM, стоимость USD)\n[dev/ops-контур, не рантайм]" {
+  style.fill: "#faf5ff"
+  style.stroke: "#a855f7"
+}
+
+# --- Связи ---
+user -> slidelens: "Загрузка деки/питча, чтение отчёта (HTTPS)"
+slidelens -> vlm: "Промпты + картинки / JSON (HTTPS)"
+slidelens -> email: "Письма (SMTP)"
+slidelens -> obs: "Ошибки, трейсы, стоимость разбора" {
+  style.stroke-dash: 5
+}

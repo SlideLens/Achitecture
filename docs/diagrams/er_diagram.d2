@@ -1,0 +1,91 @@
+direction: right
+
+# =============================================================================
+# МОДЕЛЬ ДАННЫХ SlideLens (уровень 4). По ней пишутся SQLAlchemy-модели.
+# FindingRow зеркалит pydantic-Finding пайплайна (ADR 0001).
+# =============================================================================
+
+users: {
+  shape: sql_table
+  id: "uuid" {constraint: "PRIMARY KEY"}
+  email: "varchar(255)" {constraint: "UNIQUE / NOT NULL"}
+  password_hash: "varchar(255)" {constraint: "NOT NULL"}
+  plan: "varchar(16)" {constraint: "NOT NULL (DEFAULT 'free') — free | paid"}
+  free_reviews_left: "integer" {constraint: "NOT NULL (DEFAULT 2)"}
+  email_verified: "boolean" {constraint: "NOT NULL (DEFAULT false)"}
+  created_at: "timestamptz" {constraint: "NOT NULL (DEFAULT now())"}
+}
+
+reviews: {
+  shape: sql_table
+  id: "uuid" {constraint: "PRIMARY KEY"}
+  user_id: "uuid" {constraint: "FK -> users.id / INDEX"}
+  status: "varchar(16)" {constraint: "NOT NULL — queued|processing|done|failed"}
+  score: "smallint" {constraint: "NULL (0-100, при done)"}
+  fail_reason: "text" {constraint: "NULL (при failed)"}
+  deck_filename: "varchar(255)" {constraint: "NOT NULL"}
+  n_slides: "smallint" {constraint: "NULL"}
+  has_audio: "boolean" {constraint: "NOT NULL (DEFAULT false)"}
+  has_data: "boolean" {constraint: "NOT NULL (DEFAULT false)"}
+  created_at: "timestamptz" {constraint: "NOT NULL (DEFAULT now()) / INDEX(user_id, created_at)"}
+  finished_at: "timestamptz" {constraint: "NULL"}
+}
+
+findings: {
+  shape: sql_table
+  id: "uuid" {constraint: "PRIMARY KEY"}
+  review_id: "uuid" {constraint: "FK -> reviews.id / INDEX"}
+  slide_num: "smallint" {constraint: "NULL (null = уровень деки)"}
+  category: "varchar(20)" {constraint: "NOT NULL — TYPOGRAPHY..DELIVERY"}
+  severity: "varchar(10)" {constraint: "NOT NULL — CRITICAL|MAJOR|MINOR"}
+  title: "varchar(80)" {constraint: "NOT NULL"}
+  description: "text" {constraint: "NOT NULL"}
+  fix_suggestion: "text" {constraint: "NOT NULL"}
+  bbox: "jsonb" {constraint: "NULL (нормировано 0..1)"}
+  screenshot_asset_id: "uuid" {constraint: "NULL / FK -> file_assets.id"}
+  auto_fixable: "boolean" {constraint: "NOT NULL (DEFAULT false)"}
+  auto_fixed: "boolean" {constraint: "NOT NULL (DEFAULT false)"}
+  source: "varchar(64)" {constraint: "NOT NULL (имя анализатора)"}
+  user_flag: "boolean" {constraint: "NOT NULL (DEFAULT false) — 👎"}
+}
+
+file_assets: {
+  shape: sql_table
+  id: "uuid" {constraint: "PRIMARY KEY"}
+  review_id: "uuid" {constraint: "FK -> reviews.id / INDEX"}
+  kind: "varchar(20)" {constraint: "NOT NULL — deck_original|slide_png|annotated_png|fixed_pptx|audio|data_xlsx|report_pdf"}
+  storage_path: "text" {constraint: "NOT NULL"}
+  size_bytes: "integer" {constraint: "NOT NULL"}
+  version: "integer" {constraint: "NOT NULL (DEFAULT 1) — растёт при перегенерации fixed_pptx"}
+  expires_at: "timestamptz" {constraint: "NOT NULL / INDEX (автоудаление)"}
+}
+
+events: {
+  shape: sql_table
+  id: "uuid" {constraint: "PRIMARY KEY"}
+  user_id: "uuid" {constraint: "NULL / FK -> users.id"}
+  name: "varchar(64)" {constraint: "NOT NULL / INDEX(name, created_at)"}
+  properties: "jsonb" {constraint: "NOT NULL (DEFAULT '{}')"}
+  created_at: "timestamptz" {constraint: "NOT NULL (DEFAULT now())"}
+}
+
+rehearsals: {
+  shape: sql_table
+  id: "uuid" {constraint: "PRIMARY KEY (фаза 4 — пусто в MVP)"}
+  review_id: "uuid" {constraint: "FK -> reviews.id"}
+  audio_path: "text" {constraint: "NULL"}
+  slide_timings: "jsonb" {constraint: "NULL (таймкоды переключений)"}
+  delivery_metrics: "jsonb" {constraint: "NULL"}
+  attempt_num: "smallint" {constraint: "NOT NULL (DEFAULT 1)"}
+  created_at: "timestamptz" {constraint: "NOT NULL (DEFAULT now())"}
+}
+
+# --- Связи ---
+users.id -> reviews.user_id: "1:N (создаёт)"
+reviews.id -> findings.review_id: "1:N (содержит)"
+reviews.id -> file_assets.review_id: "1:N (хранит)"
+reviews.id -> rehearsals.review_id: "1:1 (фаза 4)"
+users.id -> events.user_id: "1:N (порождает)"
+file_assets.id -> findings.screenshot_asset_id: "1:1 (аннотированный PNG)" {
+  style.stroke-dash: 5
+}

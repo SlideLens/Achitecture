@@ -1,0 +1,93 @@
+direction: down
+
+# =============================================================================
+# ПАЙПЛАЙН РАЗБОРА — 10 шагов (ADR 0002). Падение анализатора не валит разбор.
+# =============================================================================
+
+start: "Review: status = processing" {
+  shape: oval
+  style.fill: "#dbeafe"
+}
+
+s1: "1. Ингест" {
+  style.fill: "#f8fafc"
+  style.stroke: "#94a3b8"
+
+  ingest: "DeckIngestor\nPPTX/PDF → PDF (LibreOffice) → PNG (pdf2image)\n+ тексты слайдов (python-pptx)" {
+    style.fill: "#e0f2fe"
+  }
+  transcribe: "Transcriber\nаудио → WAV → faster-whisper\n→ транскрипт + DeliveryMetrics" {
+    style.fill: "#e0f2fe"
+  }
+  excel: "Парсинг Excel (если приложен)" {
+    style.fill: "#e0f2fe"
+  }
+}
+
+s2: "2. Анализ (VLM = Claude vision)" {
+  style.fill: "#fefce8"
+  style.stroke: "#ca8a04"
+
+  slide: "SlideAnalyzer\nиерархия, типографика, читаемость" {
+    style.fill: "#fef9c3"
+  }
+  zoom: "ZoomAgent\nподозрительные зоны → кроп ×2 → крупно" {
+    style.fill: "#fef9c3"
+  }
+  deck: "DeckAnalyzer\nконсистентность, нарратив, дубли" {
+    style.fill: "#fef9c3"
+  }
+  chart: "ChartChecker\nобрезанные оси, pie≠100%, сверка с Excel" {
+    style.fill: "#fef9c3"
+  }
+  cross: "CrossModalAnalyzer\nречь ↔ слайды, рекомендации к деке" {
+    style.fill: "#fef9c3"
+  }
+}
+
+s3: "3. Сборка результата" {
+  style.fill: "#f0fdf4"
+  style.stroke: "#0f5132"
+
+  agg: "Aggregator + DeckScorer\nдедуп, приоритизация, скор 0–100" {
+    style.fill: "#d1e7dd"
+  }
+  annot: "Annotator (Pillow)\nрамки-bbox на PNG" {
+    style.fill: "#d1e7dd"
+  }
+  fixer: "PptxFixer\nконтраст/выравнивание/шрифт → fixed.pptx" {
+    style.fill: "#d1e7dd"
+  }
+  report: "ReportBuilder + PdfExporter\nвью-модель + PDF (weasyprint)" {
+    style.fill: "#d1e7dd"
+  }
+}
+
+done: "status = done · email пользователю" {
+  shape: oval
+  style.fill: "#dcfce7"
+}
+fail: "status = failed + fail_reason\nфолбэк: приложить PDF" {
+  shape: oval
+  style.fill: "#fee2e2"
+}
+
+# --- Потоки ---
+start -> s1.ingest
+s1.ingest -> s2.slide
+s1.ingest -> s1.transcribe: {style.stroke-dash: 4}
+s1.ingest -> s1.excel: {style.stroke-dash: 4}
+s2.slide -> s2.zoom
+s2.zoom -> s2.deck
+s2.slide -> s2.chart
+s1.excel -> s2.chart: {style.stroke-dash: 4}
+s1.transcribe -> s2.cross: {style.stroke-dash: 4}
+s2.deck -> s3.agg
+s2.chart -> s3.agg
+s2.cross -> s3.agg: {style.stroke-dash: 4}
+s3.agg -> s3.annot
+s3.agg -> s3.fixer
+s3.annot -> s3.report
+s3.fixer -> s3.report
+s3.report -> done
+s1.ingest -> fail: "ошибка рендера"

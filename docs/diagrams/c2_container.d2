@@ -1,0 +1,83 @@
+direction: down
+
+# =============================================================================
+# C2 — КОНТЕЙНЕРЫ SlideLens (VPS · Docker Compose · один домен Caddy)
+# =============================================================================
+
+user: "Пользователь (браузер)" {
+  shape: person
+  style.fill: "#e2e8f0"
+}
+
+vps: "VPS · Docker Compose" {
+  style.fill: "#f8fafc"
+  style.stroke: "#94a3b8"
+
+  caddy: "Caddy\n(HTTPS/TLS, один домен: реверс-прокси всего на app)" {
+    style.fill: "#f1f5f9"
+    style.stroke: "#94a3b8"
+  }
+  spa: "Frontend · React SPA\n(Vite + TS + Tailwind + TanStack Query;\ndist вшит в образ → ./static)" {
+    style.fill: "#dbeafe"
+    style.stroke: "#3b82f6"
+  }
+  api: "Backend · FastAPI\n(JSON API + JWT + лимиты, приём файлов, отдача отчёта)" {
+    style.fill: "#dbeafe"
+    style.stroke: "#3b82f6"
+  }
+  worker: "Воркер · пайплайн разбора\n(ARQ: ingest → анализ → отчёт, cleanup expired)" {
+    style.fill: "#d1e7dd"
+    style.stroke: "#0f5132"
+  }
+
+  data: "Хранилища" {
+    style.fill: "#f8fafc"
+    style.stroke: "#cbd5e1"
+
+    db: "PostgreSQL\n(User, Review, Finding, FileAsset, Event)" {
+      shape: cylinder
+      style.fill: "#f5f5f5"
+    }
+    redis: "Redis\n(очередь ARQ)" {
+      shape: cylinder
+      style.fill: "#f5f5f5"
+    }
+    files: "Файлы: диск → S3/R2\n(оригиналы, PNG, отчёты, fixed.pptx)" {
+      shape: cylinder
+      style.fill: "#f5f5f5"
+    }
+  }
+
+  glp: "Grafana + Loki + Prometheus\n(логи, метрики, дашборды, алерты)" {
+    style.fill: "#faf5ff"
+    style.stroke: "#a855f7"
+  }
+}
+
+vlm: "Claude API (vision)" {
+  style.fill: "#f0fdf4"
+  style.stroke: "#16a34a"
+}
+email: "SMTP" {
+  style.fill: "#fafafa"
+  style.stroke: "#737373"
+}
+
+# --- Потоки ---
+user -> vps.caddy: "HTTPS"
+vps.caddy -> vps.api: "TLS реверс-прокси, весь трафик"
+vps.api -> vps.spa: "отдаёт SPA из ./static (StaticFiles)"
+vps.api -> vps.data.db: "SQL"
+vps.api -> vps.data.redis: "поставить задачу"
+vps.api -> vps.data.files: "сохранить / отдать"
+vps.data.redis -> vps.worker: "задача разбора"
+vps.worker -> vlm: "vision (HTTPS)"
+vps.worker -> vps.data.db: "findings, score, status"
+vps.worker -> vps.data.files: "артефакты (PNG, fixed.pptx, PDF)"
+vps.worker -> email: "отчёт готов (SMTP)"
+vps.api -> vps.glp: "логи, метрики" {
+  style.stroke-dash: 5
+}
+vps.worker -> vps.glp: "логи, метрики, стоимость" {
+  style.stroke-dash: 5
+}

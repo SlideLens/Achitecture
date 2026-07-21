@@ -1,0 +1,782 @@
+openapi: 3.1.0
+info:
+  title: SlideLens API
+  version: 0.1.0
+  description: |
+    REST API агента-ревьюера презентаций SlideLens.
+servers:
+  - url: /api/v1
+    description: Один origin в проде (Caddy), CORS не нужен (ADR 0004)
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: auth
+  - name: reviews
+  - name: rehearsals
+  - name: findings
+  - name: files
+  - name: events
+  - name: health
+
+paths:
+  /health:
+    get:
+      tags: [health]
+      operationId: health
+      security: []
+      summary: Смоук-проверка после деплоя
+      responses:
+        '200':
+          description: Сервис жив
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+
+  /auth/register:
+    post:
+      tags: [auth]
+      operationId: register
+      security: []
+      summary: Регистрация (email + пароль)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterRequest' }
+      responses:
+        '201':
+          description: Аккаунт создан (plan=free, free_reviews_left=2); сразу выдаются токены
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthTokens' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Validation' }
+
+  /auth/login:
+    post:
+      tags: [auth]
+      operationId: login
+      security: []
+      summary: Вход, выдача access + refresh
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: Токены выданы
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthTokens' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /auth/refresh:
+    post:
+      tags: [auth]
+      operationId: refresh
+      security: []
+      summary: Обновить access по refresh-токену
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token: { type: string }
+      responses:
+        '200':
+          description: Новый access
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthTokens' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /auth/me:
+    get:
+      tags: [auth]
+      operationId: getMe
+      summary: Текущий пользователь
+      responses:
+        '200':
+          description: Профиль
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /reviews:
+    get:
+      tags: [reviews]
+      operationId: listReviews
+      summary: Список моих Разборов (кабинет)
+      responses:
+        '200':
+          description: Разборы текущего пользователя, новые сверху
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ReviewOut' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [reviews]
+      operationId: createReview
+      summary: Загрузить Деку (+ опц. Запись питча, Excel) и запустить Разбор
+      description: |
+        Атомарно списывает один Разбор: сначала из пробных (free_reviews_left),
+        затем из купленных (balance_reviews). Когда оба счётчика пусты — 402
+        LIMIT_REACHED с предложением пополнить баланс; на платном плане это тоже
+        действует, безлимита нет. Если Разбор завершится статусом failed, Разбор
+        возвращается в тот же счётчик, из которого был списан. Ретрая нет —
+        повтор = новая загрузка.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [deck]
+              properties:
+                deck:
+                  type: string
+                  format: binary
+                  description: PPTX/PDF, ≤ 50 МБ, ≤ 60 слайдов
+                audio:
+                  type: string
+                  format: binary
+                  description: Опц. запись питча (mp4/mov/mp3/m4a/wav)
+                data:
+                  type: string
+                  format: binary
+                  description: Опц. Excel с данными (.xlsx)
+      responses:
+        '202':
+          description: Разбор принят в очередь (status=queued)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReviewOut' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '402':
+          description: Исчерпан лимит бесплатных Разборов
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '413': { description: Файл больше 50 МБ }
+        '422': { $ref: '#/components/responses/Validation' }
+
+  /reviews/{id}:
+    get:
+      tags: [reviews]
+      operationId: getReview
+      summary: Статус Разбора (фронт поллит каждые 5 с)
+      parameters:
+        - $ref: '#/components/parameters/ReviewId'
+      responses:
+        '200':
+          description: Текущее состояние Разбора
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReviewOut' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [reviews]
+      operationId: deleteReview
+      summary: Удалить Дeку целиком — Разбор, файлы, Находки и все попытки репетиции
+      description: |
+        Каскадно удаляет всё, что ссылается на этот Разбор (Находки, файлы, попытки
+        репетиции с их аудиозаписями), включая сами файлы на диске, не только строки в БД.
+        Бесплатный кредит не возвращается.
+      parameters:
+        - $ref: '#/components/parameters/ReviewId'
+      responses:
+        '204': { description: Удалено }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /reviews/{id}/report:
+    get:
+      tags: [reviews]
+      operationId: getReport
+      summary: Готовый Отчёт (только при status=done)
+      parameters:
+        - $ref: '#/components/parameters/ReviewId'
+      responses:
+        '200':
+          description: Вью-модель Отчёта
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReportOut' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: Разбор ещё не готов (status ≠ done) }
+
+  /reviews/{id}/slides:
+    get:
+      tags: [reviews]
+      operationId: getSlides
+      summary: Все рендеренные слайды Деки (для режима репетиции)
+      description: |
+        В отличие от Находок (скриншот только у слайдов с bbox-Находкой, ADR 0002),
+        отдаёт PNG каждого слайда — нужно листать Деку во время записи репетиции.
+        Лениво досчитывается из сохранённого оригинала при первом обращении к Разбору.
+      parameters:
+        - $ref: '#/components/parameters/ReviewId'
+      responses:
+        '200':
+          description: Слайды по порядку
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/SlideOut' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: Разбор ещё не готов (status ≠ done) }
+
+  /reviews/{id}/rehearsals:
+    get:
+      tags: [rehearsals]
+      operationId: listRehearsals
+      summary: Попытки репетиции для этого Разбора (для графика прогресса, П4)
+      parameters:
+        - $ref: '#/components/parameters/ReviewId'
+      responses:
+        '200':
+          description: Попытки по возрастанию attempt_num
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/RehearsalOut' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [rehearsals]
+      operationId: createRehearsal
+      summary: Загрузить запись репетиции (аудио + тайминг слайдов) и запустить анализ
+      description: |
+        Разбор должен быть status=done (нужны текст слайдов и Дека для сверки).
+        attempt_num вычисляется автоматически (+1 к последней попытке).
+      parameters:
+        - $ref: '#/components/parameters/ReviewId'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [audio, slide_timings]
+              properties:
+                audio:
+                  type: string
+                  format: binary
+                  description: Запись с MediaRecorder (webm/ogg/mp4/mov/mp3/m4a/wav)
+                slide_timings:
+                  type: string
+                  description: JSON-строка — массив SlideTimingIn
+      responses:
+        '202':
+          description: Репетиция принята в очередь (status=queued)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RehearsalOut' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: Разбор ещё не готов (status ≠ done) }
+        '422': { $ref: '#/components/responses/Validation' }
+
+  /rehearsals/{id}:
+    get:
+      tags: [rehearsals]
+      operationId: getRehearsal
+      summary: Статус попытки репетиции (фронт поллит до done/failed)
+      parameters:
+        - $ref: '#/components/parameters/RehearsalId'
+      responses:
+        '200':
+          description: Текущее состояние попытки
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RehearsalOut' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [rehearsals]
+      operationId: deleteRehearsal
+      summary: Удалить попытку репетиции (запись + отчёт)
+      parameters:
+        - $ref: '#/components/parameters/RehearsalId'
+      responses:
+        '204': { description: Удалена }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /rehearsals/{id}/report:
+    get:
+      tags: [rehearsals]
+      operationId: getRehearsalReport
+      summary: Отчёт репетиции — карта тайминга, болота/заглушки, Находки, дельта (П3-П4)
+      parameters:
+        - $ref: '#/components/parameters/RehearsalId'
+      responses:
+        '200':
+          description: Вью-модель отчёта репетиции
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RehearsalReportOut' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: Попытка ещё обрабатывается (status ≠ done) }
+
+  /rehearsals/{id}/audio:
+    get:
+      tags: [rehearsals]
+      operationId: getRehearsalAudio
+      summary: Скачать исходную запись репетиции (доступна в любом статусе, включая failed)
+      parameters:
+        - $ref: '#/components/parameters/RehearsalId'
+      responses:
+        '200':
+          description: Бинарная аудио/видеозапись
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /findings/{id}/flag:
+    post:
+      tags: [findings]
+      operationId: flagFinding
+      summary: Пометить Находку как мусорную (👎 → user_flag + Langfuse)
+      description: |
+        Взаимоисключающе с `/like`: при 👎 сбрасывается `user_like`.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: Отмечено }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /findings/{id}/like:
+    post:
+      tags: [findings]
+      operationId: likeFinding
+      summary: Пометить Находку как полезную (👍 → user_like + Langfuse)
+      description: |
+        Взаимоисключающе с `/flag`: при 👍 сбрасывается `user_flag`.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: Отмечено }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /findings/{id}/apply_fix:
+    post:
+      tags: [findings]
+      operationId: applyFindingFix
+      summary: Точечно применить автофикс Находки к Исправленной деке
+      description: |
+        Только для `auto_fixable=true`. Перегенерирует `fixed.pptx` из оригинала
+        по текущему набору применённых Находок (+ эта). Идемпотентно.
+        Не-`auto_fixable` / чужая → `404`.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: Фикс применён (или уже был применён) }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /files/{asset_id}:
+    get:
+      tags: [files]
+      operationId: getFile
+      summary: Отдача файла (PDF/fixed.pptx/скриншот) с проверкой владельца
+      description: |
+        Скриншоты в <img> не шлют заголовок Authorization, поэтому для них выдаётся
+        короткоживущий signed-токен в query (?sig=...). Прочие файлы — по bearer.
+      parameters:
+        - name: asset_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: sig
+          in: query
+          required: false
+          schema: { type: string }
+          description: Signed-токен для доступа из тега <img>
+      responses:
+        '200':
+          description: Бинарный файл
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /events:
+    post:
+      tags: [events]
+      operationId: trackEvents
+      summary: Фронтовые события продуктовой аналитики (батчем)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items: { $ref: '#/components/schemas/EventIn' }
+      responses:
+        '204': { description: Приняты }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    ReviewId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    RehearsalId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+
+  responses:
+    Unauthorized:
+      description: Нет/невалидный/протухший токен
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Не найдено или не принадлежит пользователю (US-8)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: Конфликт (например, email занят)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Validation:
+      description: Ошибка валидации тела запроса
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    Error:
+      type: object
+      required: [detail]
+      properties:
+        detail: { type: string, example: "Исчерпан лимит бесплатных разборов" }
+        code: { type: string, nullable: true, example: LIMIT_REACHED }
+
+    RegisterRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, minLength: 8 }
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string }
+
+    AuthTokens:
+      type: object
+      required: [access_token, refresh_token, user]
+      properties:
+        access_token: { type: string }
+        refresh_token: { type: string }
+        token_type: { type: string, example: bearer }
+        user: { $ref: '#/components/schemas/User' }
+
+    User:
+      type: object
+      required: [id, email, plan, free_reviews_left, balance_reviews, email_verified]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        plan: { type: string, enum: [free, paid] }
+        free_reviews_left:
+          type: integer
+          example: 2
+          description: Пробные Разборы. Тратятся раньше купленных.
+        balance_reviews:
+          type: integer
+          default: 0
+          example: 10
+          description: >-
+            Купленные Разборы (предоплаченный пакет). Списываются после того, как
+            исчерпаны пробные; когда оба счётчика на нуле, createReview отвечает 402.
+        email_verified: { type: boolean }
+        is_admin:
+          type: boolean
+          default: false
+          description: >-
+            Администратор — не тариф (plan остаётся free/paid), а флаг по email
+            из ADMIN_EMAILS. Всегда обходит оба счётчика Разборов (см. LimitService).
+        created_at: { type: string, format: date-time }
+
+    ReviewStatus:
+      type: string
+      enum: [queued, processing, done, failed]
+
+    ReviewOut:
+      type: object
+      required: [id, status, deck_filename, has_audio, has_data, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        status: { $ref: '#/components/schemas/ReviewStatus' }
+        score:
+          type: integer
+          nullable: true
+          minimum: 0
+          maximum: 100
+          description: Заполнен при status=done
+        fail_reason:
+          type: string
+          nullable: true
+          description: Человекочитаемая причина при status=failed
+        deck_filename: { type: string, example: "q3-review.pptx" }
+        n_slides: { type: integer, nullable: true }
+        has_audio: { type: boolean }
+        has_data: { type: boolean }
+        created_at: { type: string, format: date-time }
+        finished_at: { type: string, format: date-time, nullable: true }
+
+    Category:
+      type: string
+      enum: [TYPOGRAPHY, HIERARCHY, READABILITY, CONSISTENCY, CHART, NARRATIVE, SPEECH_MISMATCH, DELIVERY]
+
+    Severity:
+      type: string
+      enum: [CRITICAL, MAJOR, MINOR]
+
+    BBox:
+      type: object
+      description: Нормированные координаты 0..1 (не зависят от dpi)
+      required: [x, y, w, h]
+      properties:
+        x: { type: number, minimum: 0, maximum: 1 }
+        y: { type: number, minimum: 0, maximum: 1 }
+        w: { type: number, minimum: 0, maximum: 1 }
+        h: { type: number, minimum: 0, maximum: 1 }
+
+    Finding:
+      type: object
+      required: [id, category, severity, title, description, fix_suggestion, auto_fixable]
+      properties:
+        id: { type: string, format: uuid }
+        slide_num:
+          type: integer
+          nullable: true
+          description: null = Находка уровня Деки
+        category: { $ref: '#/components/schemas/Category' }
+        severity: { $ref: '#/components/schemas/Severity' }
+        title: { type: string, maxLength: 80 }
+        description: { type: string }
+        fix_suggestion: { type: string }
+        bbox:
+          oneOf:
+            - $ref: '#/components/schemas/BBox'
+            - type: 'null'
+        screenshot_asset_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Аннотированный PNG (через GET /files/{asset_id})
+        screenshot_url:
+          type: string
+          nullable: true
+          description: |
+            Готовая ссылка `/files/{screenshot_asset_id}?sig=...` с коротким подписанным
+            токеном (см. GET /files/{asset_id}), подписанная заново при каждой отдаче
+            Отчёта — для прямой вставки в <img src>, без отдельного запроса за подписью.
+        auto_fixable: { type: boolean }
+        auto_fixed: { type: boolean }
+        source: { type: string, description: Имя анализатора }
+        user_flag: { type: boolean, description: Помечена 👎 }
+        user_like: { type: boolean, description: Помечена 👍 }
+
+    DeliveryMetrics:
+      type: object
+      description: Метрики Подачи (только если приложена Запись питча)
+      properties:
+        words_per_minute: { type: number }
+        filler_words:
+          type: object
+          additionalProperties: { type: integer }
+          example: { "ээ": 12, "как бы": 5 }
+        long_pauses:
+          type: array
+          items: { type: number }
+          description: Таймкоды пауз > 3 с
+
+    ReportOut:
+      type: object
+      required: [review_id, score, n_slides, findings, auto_fixed_count]
+      properties:
+        review_id: { type: string, format: uuid }
+        score: { type: integer, minimum: 0, maximum: 100 }
+        n_slides: { type: integer }
+        findings:
+          type: array
+          items: { $ref: '#/components/schemas/Finding' }
+        delivery:
+          oneOf:
+            - $ref: '#/components/schemas/DeliveryMetrics'
+            - type: 'null'
+        auto_fixed_count: { type: integer }
+        pdf_asset_id: { type: string, format: uuid, nullable: true }
+        fixed_pptx_asset_id: { type: string, format: uuid, nullable: true }
+        fixed_pptx_filename:
+          type: string
+          nullable: true
+          description: |
+            Публичное имя файла для скачивания: `{имя Деки}_исправленная_версия№{N}.pptx`,
+            N растёт при каждой перегенерации (см. POST /findings/{id}/apply_fix).
+
+    SlideOut:
+      type: object
+      required: [slide_num, url]
+      properties:
+        slide_num: { type: integer, minimum: 1 }
+        url: { type: string, description: "Подписанная ссылка /files/{asset_id}?sig=..." }
+
+    RehearsalStatus:
+      type: string
+      enum: [queued, processing, done, failed]
+
+    SlideTimingIn:
+      type: object
+      description: Один слайд — (start, end) в секундах от начала записи (точный тайминг, П2)
+      required: [slide_num, start, end]
+      properties:
+        slide_num: { type: integer, minimum: 1 }
+        start: { type: number, minimum: 0 }
+        end: { type: number, minimum: 0 }
+
+    RehearsalOut:
+      type: object
+      required: [id, review_id, status, attempt_num, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        review_id: { type: string, format: uuid }
+        status: { $ref: '#/components/schemas/RehearsalStatus' }
+        fail_reason:
+          type: string
+          nullable: true
+          description: Человекочитаемая причина при status=failed
+        attempt_num:
+          type: integer
+          description: Номер попытки для этого Разбора (1, 2, 3…) — для графика прогресса (П4)
+        created_at: { type: string, format: date-time }
+        finished_at: { type: string, format: date-time, nullable: true }
+
+    TimingMapEntry:
+      type: object
+      description: Карта тайминга по слайдам (П3) — фактически проведённое на слайде время
+      required: [slide_num, start, end, duration]
+      properties:
+        slide_num: { type: integer }
+        start: { type: number }
+        end: { type: number }
+        duration: { type: number }
+        pacing:
+          type: string
+          nullable: true
+          enum: [swamp, stub]
+          description: "swamp = «болото» (> 2 мин), stub = «заглушка» (< 5 с)"
+
+    RehearsalFinding:
+      type: object
+      description: Находка репетиции (pacing/SPEECH_MISMATCH) — не связана с FindingRow Разбора
+      required: [id, category, severity, title, description, fix_suggestion]
+      properties:
+        id: { type: string, format: uuid }
+        slide_num: { type: integer, nullable: true }
+        category: { $ref: '#/components/schemas/Category' }
+        severity: { $ref: '#/components/schemas/Severity' }
+        title: { type: string }
+        description: { type: string }
+        fix_suggestion: { type: string }
+
+    RehearsalDelta:
+      type: object
+      description: Дельта метрик Подачи к предыдущей done-попытке этого Разбора (П4)
+      required:
+        - previous_attempt_num
+        - words_per_minute_delta
+        - filler_words_delta
+        - long_pauses_delta
+      properties:
+        previous_attempt_num: { type: integer }
+        words_per_minute_delta: { type: number }
+        filler_words_delta: { type: integer }
+        long_pauses_delta: { type: integer }
+
+    RehearsalReportOut:
+      type: object
+      required: [rehearsal_id, review_id, attempt_num, status, timing_map, findings]
+      properties:
+        rehearsal_id: { type: string, format: uuid }
+        review_id: { type: string, format: uuid }
+        attempt_num: { type: integer }
+        status: { $ref: '#/components/schemas/RehearsalStatus' }
+        fail_reason: { type: string, nullable: true }
+        delivery:
+          oneOf:
+            - $ref: '#/components/schemas/DeliveryMetrics'
+            - type: 'null'
+        timing_map:
+          type: array
+          items: { $ref: '#/components/schemas/TimingMapEntry' }
+        findings:
+          type: array
+          items: { $ref: '#/components/schemas/RehearsalFinding' }
+        delta:
+          oneOf:
+            - $ref: '#/components/schemas/RehearsalDelta'
+            - type: 'null'
+
+    EventIn:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          example: report_opened
+        properties:
+          type: object
+          additionalProperties: true
